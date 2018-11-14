@@ -2,16 +2,16 @@
 
 LinkRepo stands for “Link Repository”.  It is a TypeScript library that presents an object-oriented, type-safe, and uncomplicated interface for using Holochain links.  Developers can choose to use a LinkRepo to simply object-orient and type-safe their link entries, or to emulate foreign key fields of a traditional relational object.  Using its link management features, it is possible to emulate one-to-one fields, one-to-many fields, and many-to-many fields as well with no additional effort when the fields are used.
 
-##What it isn’t
+## What it isn’t
 
 - A repo is not a links entry type.  A single object is limited to get and commit to one links entry type, but the link management features have no such restriction.  In addition, every repo object can narrow its view of its entry type selectively to include only certain other entry types as base or link, or by the tags it can use.
 - A repo is not a set of parameters to getLinks.  It does do that to reduce repetition, but the management features are an entirely new way to build arbitrarily complex systems of links and use them with no possibility of error or expansion of the efforts to use them.
 
-##What is it then?
+## What is it then?
 
 The repo object itself is a view or a subset of a links entry type.  What that view can see is fairly fine-grained, ranging from the whole entry type to just a single tag or a type of object in that entry type just as easily.  This view is paired with a set of user-defined rules that lead to assurances about how the tags are related semantically.
 
-##Type Safety
+## Type Safety
 
 The Holochain native links are like the wild west.  There are no restrictions that can find and prevent typographical errors or type mismatches early.  There are no schema to provide assurances about the fields the recovered objects from getLinks will have.  If every coder on the project is a genius expert, that’s not a big deal, but in general, misunderstandings and fading memories will cause objects to be linked as they were not intended.
 
