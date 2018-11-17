@@ -26,13 +26,13 @@ export function notError<T>(maybeErr: holochain.CanError<T>): T {
   }
 }
 
-export declare interface LinkReplacement<T, Tags> {
+export interface LinkReplacement<T, Tags> {
   hash: Hash<T>;
   tag: Tags;
   type: string;
 }
 
-export declare interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
+export interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
   readonly entry: T;
 }
 
@@ -47,7 +47,7 @@ export declare interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
  * arrays to be for..of'ed
  *
  */
-export class LinkSet<B, L, Tags extends string = string, T = B> extends Array<holochain.GetLinksResponse> {
+export class LinkSet<B, L, Tags extends string = string, T extends L = L> extends Array<holochain.GetLinksResponse> {
   /**
    * typeof linkSet.BASE provides the base type the linkSet links from.
    */
@@ -98,8 +98,11 @@ export class LinkSet<B, L, Tags extends string = string, T = B> extends Array<ho
    * @params {string} typeNames is the list of types that the result should have.
    *  these are the type names, not the classes.
    * @returns {LinkSet<C>}
+   * @deprecated
+   * FIXME
+   * super deprecated.
    */
-  types<C = T>(...typeNames: string[]): LinkSet<B,L,Tags,C> {
+  types<C extends L = T>(...typeNames: string[]): LinkSet<B,L,Tags,C> {
     let uniques = new Set<string>(typeNames);
     return new LinkSet<B,L,Tags,C>(this.filter( ({EntryType}) => uniques.has(EntryType) ), this.origin, this.baseHash);
   }
@@ -195,6 +198,26 @@ export class LinkSet<B, L, Tags extends string = string, T = B> extends Array<ho
 
     return this;
   }
+
+  /**
+   * Go through the set link by link, accepting or rejecting them for a new
+   * LinkSet as you go.  The callback should accept a {type, entry, hash, tag}
+   * and return a boolean.
+   */
+  select(fn: (lr: LinkReplace<T, Tags>) => boolean): LinkSet<B, L, Tags, T> {
+    let chosen = new LinkSet<B, L, Tags, T>([], this.origin, this.baseHash);
+
+    for (let response of this) {
+      let {EntryType: type, Hash: hash} = response;
+      let tag = <Tags> response.Tag;
+      let entry = <T>notError(get(hash));
+      if (fn({type, entry, hash, tag})) chosen.push(response);
+    }
+
+    return chosen;
+  }
+
+
 }
 
 interface Tag<B,L, T extends string> {
@@ -251,9 +274,9 @@ export class LinkRepo<B, L, T extends string = string> {
    *  LinksOptions.
    * @returns {LinkSet<B>} containing the query result.
    */
-  get(base: Hash<B>, tag: string = ``, options: holochain.LinksOptions = {}): LinkSet<B,L,T,B> {
+  get(base: Hash<B>, tag: string = ``, options: holochain.LinksOptions = {}): LinkSet<B,L,T,L> {
     if (!tag) {
-      return new LinkSet<B,L,T,B>(<holochain.GetLinksResponse[]> notError(getLinks(base, tag, options)), this, base);
+      return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, tag, options)), this, base);
     }
     let tags = tag.split(`|`),
       responses: holochain.GetLinksResponse[] = [];
@@ -263,7 +286,7 @@ export class LinkRepo<B, L, T extends string = string> {
       responses = responses.concat(response);
     }
 
-    return new LinkSet<B,L,T,B>(responses, this, base);
+    return new LinkSet<B,L,T,L>(responses, this, base);
   }
 
   /**
