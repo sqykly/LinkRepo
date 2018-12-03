@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "urn:uuid:b5be86d1-ef26-11e8-b0c0-b639e56260b8/repo/Query",
+  "title": "Query",
+  "description": "Stores a LinkSet's internal state",
+  "properties": {
+    "array": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "Hash": { "type": "string" },
+          "EntryType": { "type": "string" },
+          "Tag": { "type": "string" },
+          "Sources": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": "Hash"
+      }
+    },
+    "baseHash": { "type": "string" },
+    "origin": { "type": "string" }
+  }
+}

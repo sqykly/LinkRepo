@@ -1,12 +1,16 @@
 {
   "compilerOptions": {
-   	"outDir": "../bin/HoloREA/dna/",
+   	"outDir": "../bin/LinkRepo/dna/LinkRepo",
    	"rootDir": "./",
    	"allowJs": false,
     "target": "es5",
     "lib" : ["es5", "es6"],
-    "types": ["holochain-proto-types"],
     "newLine" : "lf"
   },
-  "exclude" : []
+  "include" : [
+    "holochain-proto.d.ts", "LinkRepo.ts"
+  ],
+  "exclude": [
+    "*.*"
+  ]
 }

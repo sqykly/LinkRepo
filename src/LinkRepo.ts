@@ -1,5 +1,6 @@
 import "./holochain-proto";
-import "./es6";
+import "./shims";
+import "./ex-array-shim";
 
 /**
  * This is for type safety when you need assurance that get(Hash) will return the correct type.
@@ -19,7 +20,7 @@ export declare type LinkHash = Hash<holochain.LinksEntry>;
  * downstream.
  */
 export function notError<T>(maybeErr: holochain.CanError<T>): T {
-  if (isError(maybeErr)) {
+  if (isErr(maybeErr)) {
     throw new Error(`That was an error! ${``+maybeErr}`);
   } else {
     return (<T> maybeErr);
@@ -47,7 +48,7 @@ export interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
  * arrays to be for..of'ed
  *
  */
-export class LinkSet<B, L, Tags extends string = string, T extends L = L> extends Array<holochain.GetLinksResponse> {
+export class LinkSet<B, L, Tags extends string = string, T extends L = L> extends ExArray<holochain.GetLinksResponse> {
   /**
    * typeof linkSet.BASE provides the base type the linkSet links from.
    */
@@ -73,8 +74,9 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
   /**
    * Don't new this.
    */
-  constructor(array: Array<holochain.GetLinksResponse>, private origin: LinkRepo<B,L,Tags>, private baseHash: string, private onlyTag?: string) {
+  constructor(array: Array<holochain.GetLinksResponse>, private origin: LinkRepo<B,L,Tags>, private baseHash: string, onlyTag?: string, private loaded: boolean = true) {
     super(...array);
+
     if (onlyTag) {
       this.forEach((item: holochain.GetLinksResponse) => {
         item.Tag = onlyTag;
@@ -85,9 +87,9 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * Filter by any number of tags.  Returns a new LinkSet of the same type.
    * @param {string[]} narrowing An array of the tag names wanted.
    */
-  tags(...narrowing: string[]): LinkSet<B, L, Tags, T> {
+  tags<Tt extends T>(...narrowing: string[]): LinkSet<B, L, Tags, Tt> {
     let uniques = new Set(narrowing);
-    return new LinkSet<B, L, Tags, T>( this.filter( ({Tag}) => uniques.has(Tag) ), this.origin, this.baseHash );
+    return new LinkSet<B, L, Tags, Tt>( this.filter( ({Tag}) => uniques.has(Tag) ), this.origin, this.baseHash );
   }
 
   /**
@@ -98,11 +100,8 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * @params {string} typeNames is the list of types that the result should have.
    *  these are the type names, not the classes.
    * @returns {LinkSet<C>}
-   * @deprecated
-   * FIXME
-   * super deprecated.
    */
-  types<C extends L = T>(...typeNames: string[]): LinkSet<B,L,Tags,C> {
+  types<C extends T = T>(...typeNames: string[]): LinkSet<B,L,Tags,C> {
     let uniques = new Set<string>(typeNames);
     return new LinkSet<B,L,Tags,C>(this.filter( ({EntryType}) => uniques.has(EntryType) ), this.origin, this.baseHash);
   }
@@ -166,7 +165,7 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
 
       let entry = get(hash);
 
-      if (!isError(entry)) {
+      if (!isErr(entry)) {
         let rep = fn({hash, tag, type, entry});
         if (rep === null) {
           origin.remove(this.baseHash, hash, tag);
@@ -274,7 +273,8 @@ export class LinkRepo<B, L, T extends string = string> {
    *  LinksOptions.
    * @returns {LinkSet<B>} containing the query result.
    */
-  get(base: Hash<B>, tag: string = ``, options: holochain.LinksOptions = {}): LinkSet<B,L,T,L> {
+  get(base: Hash<B>, tag: string = ``): LinkSet<B,L,T,L> {
+    const options = {Load: true};
     if (!tag) {
       return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, tag, options)), this, base);
     }
@@ -307,7 +307,7 @@ export class LinkRepo<B, L, T extends string = string> {
    */
   put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
     const rg = this.recurseGuard;
-    let rgv = rg.get(tag);
+    let rgv = rg.has(tag) ? rg.get(tag) : Infinity;
 
     if (!rgv--) return this;
 
@@ -351,9 +351,9 @@ export class LinkRepo<B, L, T extends string = string> {
    * @param {string} backTag the tag that will be used for the reciprocal link.
    * @returns {ThisType}
    */
-  linkBack(tag: T, backTag: T|string = tag, repo?: LinkRepo<L, B, string>): this {
+  linkBack(tag: T, backTag: T|string = tag, repo?: LinkRepo<L|B, B|L, string>): this {
     backTag = backTag || tag;
-    if (!repo) {
+    if (!repo || repo === this) {
       return this.internalLinkback(tag, <T>backTag);
     }
     const entry = { repo, tag: backTag };

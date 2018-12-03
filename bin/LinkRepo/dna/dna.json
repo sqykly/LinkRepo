@@ -1,0 +1,131 @@
+{
+    "Version": 1,
+    "UUID": "b5be86d1-ef26-11e8-b0c0-b639e56260b8",
+    "Name": "LinkRepo",
+    "Properties": {
+        "description": "provides an application template",
+        "language": "en"
+    },
+    "PropertiesSchemaFile": "properties_schema.json",
+    "BasedOn": "",
+    "RequiresVersion": 26,
+    "DHTConfig": {
+        "HashType": "sha2-256",
+        "RedundancyFactor": 0
+    },
+    "Progenitor": {
+        "Identity": "",
+        "PubKey": null
+    },
+    "Zomes": [
+        {
+            "Name": "repo",
+            "Description": "an interface for creating and manipulating LinkRepo",
+            "CodeFile": "repo.js",
+            "RibosomeType": "js",
+            "BridgeFuncs": null,
+            "Config": null,
+            "Entries": [
+                {
+                    "Name": "Name",
+                    "DataFormat": "string",
+                    "Sharing": "public"
+                },
+                {
+                  "Name": "Links",
+                  "DataFormat": "links",
+                  "Sharing": "public"
+                },
+                {
+                  "Name": "Repo",
+                  "DataFormat": "json",
+                  "Sharing": "public",
+                  "SchemaFile": "Repo.json"
+                },
+                {
+                  "Name": "InteriorLinks",
+                  "DataFormat": "links",
+                  "Sharing": "public"
+                },
+                {
+                  "Name": "Query",
+                  "DataFormat": "json",
+                  "Sharing": "public",
+                  "SchemaFile": "Query.json"
+                }
+            ],
+            "Functions": [
+                {
+                    "Name": "createObject",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "createRepo",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "dump",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "createQuery",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "link",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "removeObject",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "removeLink",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "tags",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "hashes",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "data",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "removeAllQuery",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "reciprocal",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "predicate",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                },
+                {
+                    "Name": "singular",
+                    "CallingType": "json",
+                    "Exposure": "public"
+                }
+            ]
+        }
+    ]
+}
