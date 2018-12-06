@@ -225,6 +225,26 @@ interface Tag<B,L, T extends string> {
 }
 
 /**
+ * Problems:
+ *  The actual links entry type is not filtered in the response from getLinks.
+ *  That kind of undermines the concept of it being a repository.
+ *    Can't fake it with tags, since tag strings are types and are gone at runtime
+ *
+ *  The recursion guard seems overzealous, stopping the application of a reciprocal
+ *  tag unnecessarily.  Sometimes.  Maybe not the first time?
+ *    Should be addressable with debug()
+ *
+ *  update() does not appear to work in the test system for load/store repos.
+ *
+ *  Remove() does not appear to be effective.  Of course removeAll() is broken
+ *  too.
+ *    Given that the test system assumes there is only one result for querying
+ *    repos, it is possible that it is finding old versions by using the first
+ *    of an array of all of its versions.  BUT it shouldn't be able to find
+ *    an old version without asking for it specifically, right?
+ */
+
+/**
  * LinkRepo encapsulates all kinds of links.  Used for keeping track of reciprocal
  * links, managing DHT interactions that are otherwise nuanced, producing
  * LinkSet objects, maintaining type-safe Hash types, and defending against
@@ -273,16 +293,18 @@ export class LinkRepo<B, L, T extends string = string> {
    *  LinksOptions.
    * @returns {LinkSet<B>} containing the query result.
    */
-  get(base: Hash<B>, tag: string = ``): LinkSet<B,L,T,L> {
+  get(base: Hash<B>, ...tags: T[]): LinkSet<B,L,T,L> {
     const options = {Load: true};
-    if (!tag) {
-      return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, tag, options)), this, base);
+    if (tags.length === 0) {
+      return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, '', options)), this, base);
     }
-    let tags = tag.split(`|`),
-      responses: holochain.GetLinksResponse[] = [];
+    let responses: holochain.GetLinksResponse[] = [];
 
-    for (tag of tags) {
+    for (let tag of tags) {
       let response = <holochain.GetLinksResponse[]>getLinks(base, tag, options);
+      for (let lnk of response) {
+        lnk.Tag = tag;
+      }
       responses = responses.concat(response);
     }
 
@@ -307,15 +329,16 @@ export class LinkRepo<B, L, T extends string = string> {
    */
   put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
     const rg = this.recurseGuard;
-    let rgv = rg.has(tag) ? rg.get(tag) : Infinity;
+    let rgv = rg.has(tag) ? rg.get(tag) : 1;
 
     if (!rgv--) return this;
-
-    rg.set(tag, rgv);
 
     if (this.exclusive.has(tag)) {
       this.get(base, tag).removeAll();
     }
+    rg.set(tag, rgv);
+
+
 
     if (this.predicates.has(tag)) {
       this.addPredicate(tag, base, link);
@@ -480,12 +503,12 @@ export class LinkRepo<B, L, T extends string = string> {
     let hash = notError<LinkHash>(makeHash(this.name, presentLink));
 
     const rg = this.recurseGuard;
-    let rgv = rg.get(tag);
+    let rgv = rg.has(tag) ? rg.get(tag) : 1;
     if (!rgv--) {
       return this;
     }
 
-    if (get(hash) === HC.HashNotFound) return this;
+    //if (get(hash) === HC.HashNotFound) return this;
 
     presentLink.Links[0].LinkAction = HC.LinkAction.Del;
     hash = notError<LinkHash>(commit(this.name, presentLink));

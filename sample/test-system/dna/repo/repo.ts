@@ -233,7 +233,22 @@ interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
      };
    }
 
+   save(): Hash<QueryEntry> {
+     const entry = this.serial();
+
+     const hash = notError(commit(`Query`, entry));
+     this.forEach(({Hash: el}) => {
+       elements.put(hash, el, `element`);
+     });
+     return hash;
+   }
+
+   static load(repo: Name, base: Hash<Name>) {
+
+   }
+
    static revive(qe: QueryEntry): LinkSet<Name, Name, string, Name> {
+
      return new LinkSet<Name, Name, string, Name>(
        qe.array,
        LinkRepo.revive(repos.get(hashByName(qe.origin), `repo`).data()[0]),
@@ -267,7 +282,7 @@ interface Tag<B,L, T extends string> {
     *  represent.
     */
    constructor (protected name: string) {}
-
+   userName: string;
    protected backLinks = new Map<T, Tag<L|B,B|L, T|string>[]>();
    protected recurseGuard = new Map<T, number>();
    protected selfLinks = new Map<T, T[]>();
@@ -279,39 +294,41 @@ interface Tag<B,L, T extends string> {
    readonly BASE: B;
    readonly LINK: L;
    readonly TAGS: T;
-   public userName: string;
 
    tag<Ts extends T>(t: Ts): Tag<B, L, T> {
      return { tag: t, repo: this };
    }
-   /**
-    * Produce a LinkSet including all parameter-specified queries.
-    * @param {Hash<B>} base this is the Base entry  whose outward links will
-    *  be recovered.
-    * @param {string} tag this is the tag or tags you want to filter by.
-    *  If given an empty string or omitted, all links in this repo are retrieved.
-    *  To allow multiple tags to be returned, put them in this string separated
-    *  by the pipe character ('|')
-    * @param {holochain.LinksOptions} options options that will be passed to getLinks
-    *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
-    *  LinksOptions.
-    * @returns {LinkSet<B>} containing the query result.
-    */
-   get(base: Hash<B>, tag: string = ``): LinkSet<B,L,T,L> {
-     const options = {Load: true};
-     if (!tag) {
-       return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, tag, options)), this, base);
-     }
-     let tags = tag.split(`|`),
-       responses: holochain.GetLinksResponse[] = [];
 
-     for (tag of tags) {
-       let response = <holochain.GetLinksResponse[]>getLinks(base, tag, options);
-       responses = responses.concat(response);
-     }
+    /**
+     * Produce a LinkSet including all parameter-specified queries.
+     * @param {Hash<B>} base this is the Base entry  whose outward links will
+     *  be recovered.
+     * @param {string} tag this is the tag or tags you want to filter by.
+     *  If given an empty string or omitted, all links in this repo are retrieved.
+     *  To allow multiple tags to be returned, put them in this string separated
+     *  by the pipe character ('|')
+     * @param {holochain.LinksOptions} options options that will be passed to getLinks
+     *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
+     *  LinksOptions.
+     * @returns {LinkSet<B>} containing the query result.
+     */
+     get(base: Hash<B>, ...tags: T[]): LinkSet<B,L,T,L> {
+       const options = {Load: true};
+       if (tags.length === 0) {
+         return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, '', options)), this, base);
+       }
+       let responses: holochain.GetLinksResponse[] = [];
 
-     return new LinkSet<B,L,T,L>(responses, this, base);
-   }
+       for (let tag of tags) {
+         let response = <holochain.GetLinksResponse[]>getLinks(base, tag, options);
+         for (let lnk of response) {
+           lnk.Tag = tag;
+         }
+         responses = responses.concat(response);
+       }
+
+       return new LinkSet<B,L,T,L>(responses, this, base);
+     }
 
    /**
     * Commits a new link to the DHT.
@@ -331,21 +348,22 @@ interface Tag<B,L, T extends string> {
     */
    put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
      const rg = this.recurseGuard;
-     let rgv = rg.has(tag) ? rg.get(tag) : Infinity;
+     let rgv = rg.has(tag) ? rg.get(tag) : 1;
 
      if (!rgv--) return this;
-
-     rg.set(tag, rgv);
 
      if (this.exclusive.has(tag)) {
        this.get(base, tag).removeAll();
      }
+     rg.set(tag, rgv);
+
+
 
      if (this.predicates.has(tag)) {
        this.addPredicate(tag, base, link);
      }
 
-     const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag, LinkAction: HC.LinkAction.Add }] });
+     const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag}] });
 
 
      if (this.backLinks.has(tag)) {
@@ -504,12 +522,12 @@ interface Tag<B,L, T extends string> {
      let hash = notError<LinkHash>(makeHash(this.name, presentLink));
 
      const rg = this.recurseGuard;
-     let rgv = rg.get(tag);
+     let rgv = rg.has(tag) ? rg.get(tag) : 1;
      if (!rgv--) {
        return this;
      }
 
-     if (get(hash) === HC.HashNotFound) return this;
+     //if (get(hash) === HC.HashNotFound) return this;
 
      presentLink.Links[0].LinkAction = HC.LinkAction.Del;
      hash = notError<LinkHash>(commit(this.name, presentLink));
@@ -610,9 +628,8 @@ interface Tag<B,L, T extends string> {
          return { tag: t.tag, repo: guard.get(t.repo) };
        } else {
          let tag = t.tag;
-         let ls = repos.get(hashByName(t.repo), `repo`);
-         let entry = ls.data()[0];
-         let repo = LinkRepo.revive(entry);
+         let got = getRepoEntry(t.repo);
+         let repo = LinkRepo.revive(got.entry, guard);
          return { tag, repo };
        }
      }
@@ -648,14 +665,13 @@ interface Tag<B,L, T extends string> {
      const name = (n:string) => n.italics();
      const foreign = (n:string) => n.bold();
      const tagNear = (n:string, home: LinkRepo<any, any, string> = this) => {
-       if (home.exclusive.has(n)) n = `${n}!`;
+       //if (home.exclusive.has(n)) n = `${n}!`;
        if (home !== this) n = `${foreign(home.userName)}:${n}`;
        return n.fixed();
      }
 
      const tagFar = (n:string, home: LinkRepo<any,any,string> = this) => {
        return `
-        ${home.exclusive.has(n) ? '!' : ''}
         ${n}
         ${home !== this ? `:${foreign(home.userName)}` : ''}
        `.fixed();
@@ -712,6 +728,13 @@ interface Tag<B,L, T extends string> {
  * Begin test system
  */
 
+function updateRepo (hash, repo) {
+  let nhash = hashByName(repo.userName);
+  let rhash = notError(commit("Repo", repo.serial()));//notError(update(`Repo`, repo.serial(), hash));
+  repos.remove(nhash, hash, `repo`);
+  repos.put(nhash, rhash, `repo`);
+}
+
 type Name = string;
 interface Tagish<B = any, L = B, T extends string = string> {
   tag: string;
@@ -757,6 +780,7 @@ const priv = `InteriorLinks`
 const scope = new LinkRepo<Name, Name, "scope">(priv);
 const repos = new LinkRepo<Name, RepoEntry, "repo">(priv);
 const queries = new LinkRepo<Name, QueryEntry, "query">(priv);
+const elements = new LinkRepo<QueryEntry, Name, "element">(priv);
 
 function root(): Hash<Name> {
   if (root.root) return root.root;
@@ -921,7 +945,7 @@ function dump(opt: DumpOpt): { [k in Name]: Dump } & Status {
           info.rules = repo.rules();
         }
       }
-
+      /* Not working yet
       if (opt.elements !== false) {
         let maybe = queries.get(hash, `query`);
         if (maybe.length) {
@@ -936,6 +960,7 @@ function dump(opt: DumpOpt): { [k in Name]: Dump } & Status {
           });
         }
       }
+      */
       dict[name] = info;
     }
   } catch (e) {
@@ -1179,6 +1204,7 @@ function reciprocal(args: {local: Tagish<Name,Name,string>, foreign?: Tagish<Nam
     if (nearInfo.error) {
       return {msg: `loading repo information @${local.repo}: ${nearInfo.error}`};
     }
+    nearHash = nearInfo.hash;
     nearRepo = LinkRepo.revive(nearInfo.entry, map);
 
     const farInfo = getRepoEntry(foreign.repo);
@@ -1191,7 +1217,7 @@ function reciprocal(args: {local: Tagish<Name,Name,string>, foreign?: Tagish<Nam
   nearRepo.linkBack(local.tag, foreign.tag, farRepo);
 
   try {
-    update(`Repo`, nearRepo.serial(), nearHash);
+    updateRepo(nearHash, nearRepo);
   } catch (e) {
     return {msg: `added rule, but could not update DHT: ${e}`};
   }
@@ -1260,7 +1286,7 @@ function predicate(args: PredObj<Tagish>): {msg: string} {
 
   let hash = hashes.trigger;
   try {
-    update("Repo", repos.trigger.serial(), hash);
+    updateRepo(hash, repos.trigger);
   } catch (e) {
     return {msg: `created rule, but couldn't save in DHT: ${e}`};
   }
@@ -1283,7 +1309,7 @@ function singular(args: Tagish): Status {
   }
 
   try {
-    update(`Repo`, repo.serial(), info.hash);
+    updateRepo(info.hash, repo);
   } catch (e) {
     return {msg: `created singular rule in repo @${args.repo} but couldn't save in DHT: ${e}`};
   }
@@ -1338,4 +1364,8 @@ function validateDelPkg(entryType) {
 function validateLinkPkg(entryType) {
   // can't happen, don't care
   return null;
+}
+
+function wtf(arg: object): Status {
+  return {msg: `not implemented here`};
 }

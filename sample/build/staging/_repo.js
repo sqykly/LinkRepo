@@ -272,6 +272,17 @@ var LinkSet = /** @class */ (function (_super) {
             origin: this.origin.userName
         };
     };
+    LinkSet.prototype.save = function () {
+        var entry = this.serial();
+        var hash = notError(commit("Query", entry));
+        this.forEach(function (_a) {
+            var el = _a.Hash;
+            elements.put(hash, el, "element");
+        });
+        return hash;
+    };
+    LinkSet.load = function (repo, base) {
+    };
     LinkSet.revive = function (qe) {
         return new LinkSet(qe.array, LinkRepo.revive(repos.get(hashByName(qe.origin), "repo").data()[0]), qe.baseHash);
     };
@@ -320,18 +331,34 @@ var LinkRepo = /** @class */ (function () {
      *  LinksOptions.
      * @returns {LinkSet<B>} containing the query result.
      */
-    LinkRepo.prototype.get = function (base, tag) {
-        if (tag === void 0) { tag = ""; }
-        var e_3, _a;
-        var options = { Load: true };
-        if (!tag) {
-            return new LinkSet(notError(getLinks(base, tag, options)), this, base);
+    LinkRepo.prototype.get = function (base) {
+        var tags = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            tags[_i - 1] = arguments[_i];
         }
-        var tags = tag.split("|"), responses = [];
+        var e_3, _a, e_4, _b;
+        var options = { Load: true };
+        if (tags.length === 0) {
+            return new LinkSet(notError(getLinks(base, '', options)), this, base);
+        }
+        var responses = [];
         try {
             for (var tags_1 = __values(tags), tags_1_1 = tags_1.next(); !tags_1_1.done; tags_1_1 = tags_1.next()) {
-                tag = tags_1_1.value;
+                var tag = tags_1_1.value;
                 var response = getLinks(base, tag, options);
+                try {
+                    for (var response_1 = __values(response), response_1_1 = response_1.next(); !response_1_1.done; response_1_1 = response_1.next()) {
+                        var lnk = response_1_1.value;
+                        lnk.Tag = tag;
+                    }
+                }
+                catch (e_4_1) { e_4 = { error: e_4_1 }; }
+                finally {
+                    try {
+                        if (response_1_1 && !response_1_1.done && (_b = response_1.return)) _b.call(response_1);
+                    }
+                    finally { if (e_4) throw e_4.error; }
+                }
                 responses = responses.concat(response);
             }
         }
@@ -361,19 +388,19 @@ var LinkRepo = /** @class */ (function () {
      *  it to be chainable.
      */
     LinkRepo.prototype.put = function (base, link, tag, backRepo, backTag) {
-        var e_4, _a, e_5, _b;
+        var e_5, _a, e_6, _b;
         var rg = this.recurseGuard;
-        var rgv = rg.has(tag) ? rg.get(tag) : Infinity;
+        var rgv = rg.has(tag) ? rg.get(tag) : 1;
         if (!rgv--)
             return this;
-        rg.set(tag, rgv);
         if (this.exclusive.has(tag)) {
             this.get(base, tag).removeAll();
         }
+        rg.set(tag, rgv);
         if (this.predicates.has(tag)) {
             this.addPredicate(tag, base, link);
         }
-        var hash = commit(this.name, { Links: [{ Base: base, Link: link, Tag: tag, LinkAction: HC.LinkAction.Add }] });
+        var hash = commit(this.name, { Links: [{ Base: base, Link: link, Tag: tag }] });
         if (this.backLinks.has(tag)) {
             try {
                 for (var _c = __values(this.backLinks.get(tag)), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -382,12 +409,12 @@ var LinkRepo = /** @class */ (function () {
                     repo.put(link, base, revTag);
                 }
             }
-            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            catch (e_5_1) { e_5 = { error: e_5_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_4) throw e_4.error; }
+                finally { if (e_5) throw e_5.error; }
             }
         }
         if (this.selfLinks.has(tag)) {
@@ -397,12 +424,12 @@ var LinkRepo = /** @class */ (function () {
                     this.put(link, base, revTag);
                 }
             }
-            catch (e_5_1) { e_5 = { error: e_5_1 }; }
+            catch (e_6_1) { e_6 = { error: e_6_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_5) throw e_5.error; }
+                finally { if (e_6) throw e_6.error; }
             }
         }
         if (backRepo && backTag) {
@@ -470,7 +497,7 @@ var LinkRepo = /** @class */ (function () {
         return this;
     };
     LinkRepo.prototype.addPredicate = function (trigger, subj, obj) {
-        var e_6, _a, e_7, _b;
+        var e_7, _a, e_8, _b;
         var triggered = this.predicates.get(trigger);
         try {
             for (var triggered_1 = __values(triggered), triggered_1_1 = triggered_1.next(); !triggered_1_1.done; triggered_1_1 = triggered_1.next()) {
@@ -482,25 +509,25 @@ var LinkRepo = /** @class */ (function () {
                         dependent.repo.put(q, subj, dependent.tag);
                     }
                 }
-                catch (e_7_1) { e_7 = { error: e_7_1 }; }
+                catch (e_8_1) { e_8 = { error: e_8_1 }; }
                 finally {
                     try {
                         if (queried_1_1 && !queried_1_1.done && (_b = queried_1.return)) _b.call(queried_1);
                     }
-                    finally { if (e_7) throw e_7.error; }
+                    finally { if (e_8) throw e_8.error; }
                 }
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (triggered_1_1 && !triggered_1_1.done && (_a = triggered_1.return)) _a.call(triggered_1);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_7) throw e_7.error; }
         }
     };
     LinkRepo.prototype.removePredicate = function (trigger, subj, obj) {
-        var e_8, _a, e_9, _b;
+        var e_9, _a, e_10, _b;
         var triggered = this.predicates.get(trigger);
         try {
             for (var triggered_2 = __values(triggered), triggered_2_1 = triggered_2.next(); !triggered_2_1.done; triggered_2_1 = triggered_2.next()) {
@@ -512,21 +539,21 @@ var LinkRepo = /** @class */ (function () {
                         dependent.repo.remove(q, subj, dependent.tag);
                     }
                 }
-                catch (e_9_1) { e_9 = { error: e_9_1 }; }
+                catch (e_10_1) { e_10 = { error: e_10_1 }; }
                 finally {
                     try {
                         if (queried_2_1 && !queried_2_1.done && (_b = queried_2.return)) _b.call(queried_2);
                     }
-                    finally { if (e_9) throw e_9.error; }
+                    finally { if (e_10) throw e_10.error; }
                 }
             }
         }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
         finally {
             try {
                 if (triggered_2_1 && !triggered_2_1.done && (_a = triggered_2.return)) _a.call(triggered_2);
             }
-            finally { if (e_8) throw e_8.error; }
+            finally { if (e_9) throw e_9.error; }
         }
     };
     LinkRepo.prototype.internalLinkback = function (fwd, back) {
@@ -574,16 +601,15 @@ var LinkRepo = /** @class */ (function () {
      * @returns {LinkHash} but not really useful.  Expect to change.
      */
     LinkRepo.prototype.remove = function (base, link, tag) {
-        var e_10, _a, e_11, _b;
+        var e_11, _a, e_12, _b;
         var presentLink = this.toLinks(base, link, tag);
         var hash = notError(makeHash(this.name, presentLink));
         var rg = this.recurseGuard;
-        var rgv = rg.get(tag);
+        var rgv = rg.has(tag) ? rg.get(tag) : 1;
         if (!rgv--) {
             return this;
         }
-        if (get(hash) === HC.HashNotFound)
-            return this;
+        //if (get(hash) === HC.HashNotFound) return this;
         presentLink.Links[0].LinkAction = HC.LinkAction.Del;
         hash = notError(commit(this.name, presentLink));
         rg.set(tag, rgv);
@@ -594,12 +620,12 @@ var LinkRepo = /** @class */ (function () {
                     repo.remove(link, base, backTag);
                 }
             }
-            catch (e_10_1) { e_10 = { error: e_10_1 }; }
+            catch (e_11_1) { e_11 = { error: e_11_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_10) throw e_10.error; }
+                finally { if (e_11) throw e_11.error; }
             }
         }
         if (this.selfLinks.has(tag)) {
@@ -609,12 +635,12 @@ var LinkRepo = /** @class */ (function () {
                     this.remove(link, base, back);
                 }
             }
-            catch (e_11_1) { e_11 = { error: e_11_1 }; }
+            catch (e_12_1) { e_12 = { error: e_12_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
                 }
-                finally { if (e_11) throw e_11.error; }
+                finally { if (e_12) throw e_12.error; }
             }
         }
         if (this.predicates.has(tag)) {
@@ -683,7 +709,7 @@ var LinkRepo = /** @class */ (function () {
     };
     LinkRepo.revive = function (re, guard) {
         if (guard === void 0) { guard = new Map(); }
-        var e_12, _a, e_13, _b, e_14, _c, e_15, _d, e_16, _e;
+        var e_13, _a, e_14, _b, e_15, _c, e_16, _d, e_17, _e;
         var repo = new LinkRepo("Links");
         repo.userName = re.name;
         guard.set(re.name, repo);
@@ -693,9 +719,8 @@ var LinkRepo = /** @class */ (function () {
             }
             else {
                 var tag = t.tag;
-                var ls = repos.get(hashByName(t.repo), "repo");
-                var entry = ls.data()[0];
-                var repo_1 = LinkRepo.revive(entry);
+                var got = getRepoEntry(t.repo);
+                var repo_1 = LinkRepo.revive(got.entry, guard);
                 return { tag: tag, repo: repo_1 };
             }
         }
@@ -709,21 +734,21 @@ var LinkRepo = /** @class */ (function () {
                         repo.linkBack(key, tag, targ);
                     }
                 }
-                catch (e_13_1) { e_13 = { error: e_13_1 }; }
+                catch (e_14_1) { e_14 = { error: e_14_1 }; }
                 finally {
                     try {
                         if (_j && !_j.done && (_b = _h.return)) _b.call(_h);
                     }
-                    finally { if (e_13) throw e_13.error; }
+                    finally { if (e_14) throw e_14.error; }
                 }
             }
         }
-        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        catch (e_13_1) { e_13 = { error: e_13_1 }; }
         finally {
             try {
                 if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
             }
-            finally { if (e_12) throw e_12.error; }
+            finally { if (e_13) throw e_13.error; }
         }
         try {
             for (var _l = __values(re.exclusive), _m = _l.next(); !_m.done; _m = _l.next()) {
@@ -731,12 +756,12 @@ var LinkRepo = /** @class */ (function () {
                 repo.singular(tag);
             }
         }
-        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
         finally {
             try {
                 if (_m && !_m.done && (_c = _l.return)) _c.call(_l);
             }
-            finally { if (e_14) throw e_14.error; }
+            finally { if (e_15) throw e_15.error; }
         }
         try {
             for (var _o = __values(Object.keys(re.predicates)), _p = _o.next(); !_p.done; _p = _o.next()) {
@@ -750,21 +775,21 @@ var LinkRepo = /** @class */ (function () {
                         repo.predicate(key, query_3, dependent);
                     }
                 }
-                catch (e_16_1) { e_16 = { error: e_16_1 }; }
+                catch (e_17_1) { e_17 = { error: e_17_1 }; }
                 finally {
                     try {
                         if (_r && !_r.done && (_e = _q.return)) _e.call(_q);
                     }
-                    finally { if (e_16) throw e_16.error; }
+                    finally { if (e_17) throw e_17.error; }
                 }
             }
         }
-        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        catch (e_16_1) { e_16 = { error: e_16_1 }; }
         finally {
             try {
                 if (_p && !_p.done && (_d = _o.return)) _d.call(_o);
             }
-            finally { if (e_15) throw e_15.error; }
+            finally { if (e_16) throw e_16.error; }
         }
         return repo;
     };
@@ -775,22 +800,21 @@ var LinkRepo = /** @class */ (function () {
         if (a === void 0) { a = "subject"; }
         if (b === void 0) { b = "object"; }
         if (c === void 0) { c = "other"; }
-        var e_17, _a, e_18, _b, e_19, _c, e_20, _d, e_21, _e, e_22, _f, e_23, _g;
+        var e_18, _a, e_19, _b, e_20, _c, e_21, _d, e_22, _e, e_23, _f, e_24, _g;
         var _h = this, backLinks = _h.backLinks, selfLinks = _h.selfLinks, exclusive = _h.exclusive, predicates = _h.predicates;
         var rules = [];
         var name = function (n) { return n.italics(); };
         var foreign = function (n) { return n.bold(); };
         var tagNear = function (n, home) {
             if (home === void 0) { home = _this; }
-            if (home.exclusive.has(n))
-                n = n + "!";
+            //if (home.exclusive.has(n)) n = `${n}!`;
             if (home !== _this)
                 n = foreign(home.userName) + ":" + n;
             return n.fixed();
         };
         var tagFar = function (n, home) {
             if (home === void 0) { home = _this; }
-            return ("\n        " + (home.exclusive.has(n) ? '!' : '') + "\n        " + n + "\n        " + (home !== _this ? ":" + foreign(home.userName) : '') + "\n       ").fixed();
+            return ("\n        " + n + "\n        " + (home !== _this ? ":" + foreign(home.userName) : '') + "\n       ").fixed();
         };
         try {
             for (var _j = __values(backLinks.entries()), _k = _j.next(); !_k.done; _k = _j.next()) {
@@ -801,21 +825,21 @@ var LinkRepo = /** @class */ (function () {
                         rules.push("\n           All " + name(a) + " " + tagNear(trigger) + " " + name(b) + "\n           =>\n           " + name(b) + " " + tagFar(tag, repo) + " " + name(a) + "\n         ");
                     }
                 }
-                catch (e_18_1) { e_18 = { error: e_18_1 }; }
+                catch (e_19_1) { e_19 = { error: e_19_1 }; }
                 finally {
                     try {
                         if (bls_1_1 && !bls_1_1.done && (_b = bls_1.return)) _b.call(bls_1);
                     }
-                    finally { if (e_18) throw e_18.error; }
+                    finally { if (e_19) throw e_19.error; }
                 }
             }
         }
-        catch (e_17_1) { e_17 = { error: e_17_1 }; }
+        catch (e_18_1) { e_18 = { error: e_18_1 }; }
         finally {
             try {
                 if (_k && !_k.done && (_a = _j.return)) _a.call(_j);
             }
-            finally { if (e_17) throw e_17.error; }
+            finally { if (e_18) throw e_18.error; }
         }
         try {
             for (var _o = __values(selfLinks.entries()), _p = _o.next(); !_p.done; _p = _o.next()) {
@@ -826,21 +850,21 @@ var LinkRepo = /** @class */ (function () {
                         rules.push("\n           All " + name(a) + " " + tagNear(trigger, this) + " " + name(b) + "\n           => " + name(b) + " " + tagFar(tag, this) + " " + name(a) + "\n         ");
                     }
                 }
-                catch (e_20_1) { e_20 = { error: e_20_1 }; }
+                catch (e_21_1) { e_21 = { error: e_21_1 }; }
                 finally {
                     try {
                         if (links_1_1 && !links_1_1.done && (_d = links_1.return)) _d.call(links_1);
                     }
-                    finally { if (e_20) throw e_20.error; }
+                    finally { if (e_21) throw e_21.error; }
                 }
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
                 if (_p && !_p.done && (_c = _o.return)) _c.call(_o);
             }
-            finally { if (e_19) throw e_19.error; }
+            finally { if (e_20) throw e_20.error; }
         }
         try {
             for (var _r = __values(predicates.entries()), _s = _r.next(); !_s.done; _s = _r.next()) {
@@ -851,21 +875,21 @@ var LinkRepo = /** @class */ (function () {
                         rules.push("\n           If " + name(a) + " " + tagNear(trigger) + " " + name(b) + "\n           => All " + name(c) + "\n           where " + name(b) + " " + tagNear(query_4.tag, query_4.repo) + " " + name(c) + ",\n           => " + name(c) + " " + tagFar(dependent.tag, dependent.repo) + " " + name(a) + "\n         ");
                     }
                 }
-                catch (e_22_1) { e_22 = { error: e_22_1 }; }
+                catch (e_23_1) { e_23 = { error: e_23_1 }; }
                 finally {
                     try {
                         if (plist_1_1 && !plist_1_1.done && (_f = plist_1.return)) _f.call(plist_1);
                     }
-                    finally { if (e_22) throw e_22.error; }
+                    finally { if (e_23) throw e_23.error; }
                 }
             }
         }
-        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        catch (e_22_1) { e_22 = { error: e_22_1 }; }
         finally {
             try {
                 if (_s && !_s.done && (_e = _r.return)) _e.call(_r);
             }
-            finally { if (e_21) throw e_21.error; }
+            finally { if (e_22) throw e_22.error; }
         }
         try {
             for (var _v = __values(exclusive.values()), _w = _v.next(); !_w.done; _w = _v.next()) {
@@ -873,22 +897,32 @@ var LinkRepo = /** @class */ (function () {
                 rules.push("\n         Any " + name(a) + " " + tagNear(singular_1) + " " + name(b) + "\n         =>\n         No " + name(a) + " " + tagNear(singular_1) + " " + name(c) + "\n       ");
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
                 if (_w && !_w.done && (_g = _v.return)) _g.call(_v);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_24) throw e_24.error; }
         }
         return rules;
     };
     return LinkRepo;
 }());
 // no. LinkRepo = LinkRepo;
+/**
+ * Begin test system
+ */
+function updateRepo(hash, repo) {
+    var nhash = hashByName(repo.userName);
+    var rhash = notError(commit("Repo", repo.serial())); //notError(update(`Repo`, repo.serial(), hash));
+    repos.remove(nhash, hash, "repo");
+    repos.put(nhash, rhash, "repo");
+}
 var priv = "InteriorLinks";
 var scope = new LinkRepo(priv);
 var repos = new LinkRepo(priv);
 var queries = new LinkRepo(priv);
+var elements = new LinkRepo(priv);
 function root() {
     if (root.root)
         return root.root;
@@ -999,7 +1033,7 @@ function createRepo(_a) {
     return { msg: "ok" };
 }
 function dumpIsEmpty(d) {
-    var e_24, _a;
+    var e_25, _a;
     try {
         for (var _b = __values(["links", "rules", "elements"]), _c = _b.next(); !_c.done; _c = _b.next()) {
             var asp = _c.value;
@@ -1007,12 +1041,12 @@ function dumpIsEmpty(d) {
                 return false;
         }
     }
-    catch (e_24_1) { e_24 = { error: e_24_1 }; }
+    catch (e_25_1) { e_25 = { error: e_25_1 }; }
     finally {
         try {
             if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
         }
-        finally { if (e_24) throw e_24.error; }
+        finally { if (e_25) throw e_25.error; }
     }
     return true;
 }
@@ -1032,7 +1066,7 @@ function dump(opt) {
         var hashes_1 = everything.hashes();
         var names = everything.data();
         var i = len;
-        var _loop_1 = function () {
+        while (i--) {
             var name = names[i];
             var hash = hashes_1[i];
             var info = {};
@@ -1053,20 +1087,23 @@ function dump(opt) {
                     info.rules = repo.rules();
                 }
             }
+            /* Not working yet
             if (opt.elements !== false) {
-                var maybe = queries.get(hash, "query");
-                if (maybe.length) {
-                    var q_1 = maybe.data()[0];
-                    info.elements = q_1.array.map(function (_a) {
-                        var Hash = _a.Hash, Tag = _a.Tag;
-                        return "\n              " + q_1.origin + ":\n              " + notError(get(q_1.baseHash)) + "\n              " + Tag + "\n              " + notError(get(Hash)) + "\n            ";
-                    });
-                }
+              let maybe = queries.get(hash, `query`);
+              if (maybe.length) {
+                let q = maybe.data()[0];
+                info.elements = q.array.map(({Hash, Tag}) => {
+                  return `
+                    ${q.origin}:
+                    ${notError(get(q.baseHash))}
+                    ${Tag}
+                    ${notError(get(Hash))}
+                  `
+                });
+              }
             }
+            */
             dict[name] = info;
-        };
-        while (i--) {
-            _loop_1();
         }
     }
     catch (e) {
@@ -1299,6 +1336,7 @@ function reciprocal(args) {
         if (nearInfo.error) {
             return { msg: "loading repo information @" + local.repo + ": " + nearInfo.error };
         }
+        nearHash = nearInfo.hash;
         nearRepo = LinkRepo.revive(nearInfo.entry, map);
         var farInfo = getRepoEntry(foreign.repo);
         if (farInfo.error) {
@@ -1308,7 +1346,7 @@ function reciprocal(args) {
     }
     nearRepo.linkBack(local.tag, foreign.tag, farRepo);
     try {
-        update("Repo", nearRepo.serial(), nearHash);
+        updateRepo(nearHash, nearRepo);
     }
     catch (e) {
         return { msg: "added rule, but could not update DHT: " + e };
@@ -1316,7 +1354,7 @@ function reciprocal(args) {
     return { msg: "ok" };
 }
 function predicate(args) {
-    var e_25, _a, e_26, _b;
+    var e_26, _a, e_27, _b;
     var tags;
     {
         var t = {};
@@ -1326,12 +1364,12 @@ function predicate(args) {
                 t[arg] = args[arg].tag;
             }
         }
-        catch (e_25_1) { e_25 = { error: e_25_1 }; }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_25) throw e_25.error; }
+            finally { if (e_26) throw e_26.error; }
         }
         tags = t;
     }
@@ -1371,12 +1409,12 @@ function predicate(args) {
             repos[k] = repo;
         }
     }
-    catch (e_26_1) { e_26 = { error: e_26_1 }; }
+    catch (e_27_1) { e_27 = { error: e_27_1 }; }
     finally {
         try {
             if (keys_1_1 && !keys_1_1.done && (_b = keys_1.return)) _b.call(keys_1);
         }
-        finally { if (e_26) throw e_26.error; }
+        finally { if (e_27) throw e_27.error; }
     }
     try {
         repos.trigger.predicate(tags.trigger, { tag: tags.query, repo: repos.query }, { tag: tags.dependent, repo: repos.dependent });
@@ -1386,7 +1424,7 @@ function predicate(args) {
     }
     var hash = hashes.trigger;
     try {
-        update("Repo", repos.trigger.serial(), hash);
+        updateRepo(hash, repos.trigger);
     }
     catch (e) {
         return { msg: "created rule, but couldn't save in DHT: " + e };
@@ -1407,7 +1445,7 @@ function singular(args) {
         return { msg: "failed to load and create singular rule in repo @" + args.repo + ": " + e };
     }
     try {
-        update("Repo", repo.serial(), info.hash);
+        updateRepo(info.hash, repo);
     }
     catch (e) {
         return { msg: "created singular rule in repo @" + args.repo + " but couldn't save in DHT: " + e };
@@ -1452,4 +1490,7 @@ function validateDelPkg(entryType) {
 function validateLinkPkg(entryType) {
     // can't happen, don't care
     return null;
+}
+function wtf(arg) {
+    return { msg: "not implemented here" };
 }

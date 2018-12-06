@@ -4,22 +4,6 @@
   "title": "Query",
   "description": "Stores a LinkSet's internal state",
   "properties": {
-    "array": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "Hash": { "type": "string" },
-          "EntryType": { "type": "string" },
-          "Tag": { "type": "string" },
-          "Sources": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": "Hash"
-      }
-    },
     "baseHash": { "type": "string" },
     "origin": { "type": "string" }
   }

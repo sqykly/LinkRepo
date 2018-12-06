@@ -65,7 +65,14 @@ function putJson(json) {
 function repl(code) {
   const div = el(`<p.command>`);
   output.children().first().before(div);
-  const codeDiv = el(`<div.user>`).append($(`<kbd>`).text(code)).appendTo(div);
+  const codeDiv = el(`<a.user>`)
+    .append($(`<kbd>`).text(code))
+    .attr({href: '#'})
+    .click((ev) => {
+      ev.preventDefault();
+      input.val(code);
+    })
+  .appendTo(div);
 
   // tried to not eval with new Function, but that's eval anyway, just more complicated.
   let fn;
@@ -327,7 +334,7 @@ function Zome(name, fnTypes) {
 const allMethods = [
   `createObject`, `createRepo`, `dump`, `createQuery`, `link`, `removeObject`,
   `removeLink`, `tags`, `hashes`, `data`, `removeAllQuery`, `reciprocal`,
-  `predicate`, `singular`
+  `predicate`, `singular`, `wtf`
 ];
 const zome = new Zome(`repo`, allMethods);
 
@@ -387,3 +394,37 @@ zome.help = h(`All zome modules and functions have a .help.  All .help also have
 
 window.zome = zome;
 window.repl = repl;
+
+// sample systems
+function eventAffectsResource() {
+  Promise.all([
+    zome.createRepo({name: `event`}),
+    zome.createRepo({name: `resource`})
+  ]).then( () => {
+    zome.reciprocal({
+      local: {repo: `event`, tag: `affects`},
+      foreign: {repo: `resource`, tag: `affectedBy`}
+    })
+  }).then(() => {
+    zome.reciprocal({
+      foreign: {repo: `event`, tag: `affects`},
+      local: {repo: `resource`, tag: `affectedBy`}
+    })
+  }).then(() => {
+    zome.singular({repo: `event`, tag: `affects`})
+  }).then(() => Promise.all([
+    zome.createObject({name: `fooEvent`}),
+    zome.createObject({name: `barStuff`}),
+    zome.createObject({name: `bazEvent`}),
+    zome.createObject({name: `notMyStuff`})
+  ])).then(() => {
+    // works when linking from event end
+    zome.link({repo: `event`, base: `fooEvent`, target: `barStuff`, tag: `affects`});
+  }).then(() => {
+    // works when linking from resource end
+    zome.link({repo: `resource`, base: `barStuff`, target: `bazEvent`, tag: `affects`});
+  }).then(() => {
+    zome.link({repo: `event`, base: `bazEvent`, target: `notMyStuff`, tag: `affects`});
+  })
+
+}
