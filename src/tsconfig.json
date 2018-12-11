@@ -8,7 +8,7 @@
     "newLine" : "lf"
   },
   "include" : [
-    "holochain-proto.d.ts", "LinkRepo.ts"
+    "holochain-proto.d.ts", "LinkRepo.ts", "ex-array-shim.d.ts"
   ],
   "exclude": [
     "*.*"

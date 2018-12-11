@@ -415,6 +415,31 @@ var LinkSet = /** @class */ (function (_super) {
         }
         return chosen;
     };
+    LinkSet.prototype.descEntry = function (args) {
+        var Hash = args.Hash, Tag = args.Tag, EntryType = args.EntryType;
+        return (Tag || "no-tag") + " " + Hash + ":" + (EntryType || "no-type");
+    };
+    LinkSet.prototype.desc = function () {
+        return this.map(this.descEntry);
+    };
+    LinkSet.prototype.notIn = function (ls) {
+        var _this = this;
+        if (ls.origin !== this.origin || ls.baseHash !== this.baseHash) {
+            return new LinkSet(this, this.origin, this.baseHash);
+        }
+        var inLs = new Set(ls.desc());
+        return new LinkSet(this.filter(function (link) {
+            return !inLs.has(_this.descEntry(link));
+        }), this.origin, this.baseHash, undefined, this.loaded);
+    };
+    LinkSet.prototype.andIn = function (ls) {
+        var _this = this;
+        if (this.baseHash !== ls.baseHash) {
+            return new LinkSet([], this.origin, this.baseHash);
+        }
+        var inLs = new Set(ls.desc());
+        return new LinkSet(this.filter(function (link) { return inLs.has(_this.descEntry(link)); }), this.origin, this.baseHash, undefined, this.loaded);
+    };
     LinkSet.prototype.serial = function () {
         return {
             array: __spread(this),
@@ -460,27 +485,39 @@ var LinkRepo = /** @class */ (function () {
     function LinkRepo(name) {
         this.name = name;
         this.backLinks = new Map();
-        this.recurseGuard = new Map();
+        /*
+        protected recurseGuard = new Map<T, number>();
+        /*/
+        this.recurseGuard = new Set();
+        /**/
         this.selfLinks = new Map();
         this.predicates = new Map();
         this.exclusive = new Set();
     }
+    LinkRepo.prototype.guard = function (base, link, tag, op, fn) {
+        var descript = base + " " + op + tag + " " + link;
+        if (!this.recurseGuard.has(descript)) {
+            this.recurseGuard.add(descript);
+            fn();
+            this.recurseGuard.delete(descript);
+        }
+    };
     LinkRepo.prototype.tag = function (t) {
         return { tag: t, repo: this };
     };
     /**
-     * Produce a LinkSet including all parameter-specified queries.
-     * @param {Hash<B>} base this is the Base entry  whose outward links will
-     *  be recovered.
-     * @param {string} tag this is the tag or tags you want to filter by.
-     *  If given an empty string or omitted, all links in this repo are retrieved.
-     *  To allow multiple tags to be returned, put them in this string separated
-     *  by the pipe character ('|')
-     * @param {holochain.LinksOptions} options options that will be passed to getLinks
-     *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
-     *  LinksOptions.
-     * @returns {LinkSet<B>} containing the query result.
-     */
+    * Produce a LinkSet including all parameter-specified queries.
+    * @param {Hash<B>} base this is the Base entry  whose outward links will
+    *  be recovered.
+    * @param {string} tag this is the tag or tags you want to filter by.
+    *  If given an empty string or omitted, all links in this repo are retrieved.
+    *  To allow multiple tags to be returned, put them in this string separated
+    *  by the pipe character ('|')
+    * @param {holochain.LinksOptions} options options that will be passed to getLinks
+    *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
+    *  LinksOptions.
+    * @returns {LinkSet<B>} containing the query result.
+    */
     LinkRepo.prototype.get = function (base) {
         var tags = [];
         for (var _i = 1; _i < arguments.length; _i++) {
@@ -522,80 +559,115 @@ var LinkRepo = /** @class */ (function () {
         return new LinkSet(responses, this, base);
     };
     /**
-     * Commits a new link to the DHT.
-     * @param {Hash<B>} base the base of the link.  This is the object you can query by.
-     * @param {Hash<L>} link the linked object of the link.  This is the object you
-     *  CAN'T query by, which is the object of the tag.
-     * @param {T} tag the tag for the link, of which base is the object.
-     * @param {LinkRepo<L, B>?} backRepo optional repo that will contain a reciprocal
-     *  link.  Any reciprocals already registered via linkBack() are already covered;
-     *  Use that method instead when possible.
-     * @param {string?} backTag optional but mandatory if backRepo is specified.
-     *  this is the tag used for the reciprocal link in addition to those already
-     *  entered into the repo; there is no need to repeat this information if
-     *  the reciprocal has been entered already via linkBack
-     * @returns {LinkHash} a hash of the link, but that's pretty useless, so I'll probably end up changing
-     *  it to be chainable.
-     */
+    * Commits a new link to the DHT.
+    * @param {Hash<B>} base the base of the link.  This is the object you can query by.
+    * @param {Hash<L>} link the linked object of the link.  This is the object you
+    *  CAN'T query by, which is the object of the tag.
+    * @param {T} tag the tag for the link, of which base is the object.
+    * @param {LinkRepo<L, B>?} backRepo optional repo that will contain a reciprocal
+    *  link.  Any reciprocals already registered via linkBack() are already covered;
+    *  Use that method instead when possible.
+    * @param {string?} backTag optional but mandatory if backRepo is specified.
+    *  this is the tag used for the reciprocal link in addition to those already
+    *  entered into the repo; there is no need to repeat this information if
+    *  the reciprocal has been entered already via linkBack
+    * @returns {LinkHash} a hash of the link, but that's pretty useless, so I'll probably end up changing
+    *  it to be chainable.
+    */
     LinkRepo.prototype.put = function (base, link, tag, backRepo, backTag) {
-        var e_5, _a, e_6, _b;
-        var rg = this.recurseGuard;
-        var rgv = rg.has(tag) ? rg.get(tag) : 1;
-        if (!rgv--)
-            return this;
+        var _this = this;
+        /*
+        const rg = this.recurseGuard;
+        let rgv = rg.has(tag) ? rg.get(tag) : 1;
+     
+        if (!rgv--) return this;
+     
         if (this.exclusive.has(tag)) {
-            this.get(base, tag).removeAll();
+          this.get(base, tag).removeAll();
         }
         rg.set(tag, rgv);
+     
+     
+     
         if (this.predicates.has(tag)) {
-            this.addPredicate(tag, base, link);
+          this.addPredicate(tag, base, link);
         }
-        var hash = commit(this.name, { Links: [{ Base: base, Link: link, Tag: tag }] });
+     
+        const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag}] });
+     
+     
         if (this.backLinks.has(tag)) {
-            try {
-                for (var _c = __values(this.backLinks.get(tag)), _d = _c.next(); !_d.done; _d = _c.next()) {
-                    var backLink = _d.value;
-                    var repo = backLink.repo, revTag = backLink.tag;
-                    repo.put(link, base, revTag);
-                }
-            }
-            catch (e_5_1) { e_5 = { error: e_5_1 }; }
-            finally {
-                try {
-                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
-                }
-                finally { if (e_5) throw e_5.error; }
-            }
+          for (let backLink of this.backLinks.get(tag)) {
+            let {repo, tag: revTag} = backLink;
+            repo.put(link, base, revTag);
+          }
         }
         if (this.selfLinks.has(tag)) {
-            try {
-                for (var _e = __values(this.selfLinks.get(tag)), _f = _e.next(); !_f.done; _f = _e.next()) {
-                    var revTag = _f.value;
-                    this.put(link, base, revTag);
-                }
-            }
-            catch (e_6_1) { e_6 = { error: e_6_1 }; }
-            finally {
-                try {
-                    if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
-                }
-                finally { if (e_6) throw e_6.error; }
-            }
+          for (let revTag of this.selfLinks.get(tag)) {
+            this.put(link, base, revTag);
+          }
         }
         if (backRepo && backTag) {
-            backRepo.put(link, base, backTag);
+          backRepo.put(link, base, backTag);
         }
+     
         rg.set(tag, ++rgv);
+        /*/
+        this.guard(base, link, tag, '+', function () {
+            var e_5, _a, e_6, _b;
+            if (_this.exclusive.has(tag)) {
+                _this.get(base, tag).removeAll();
+            }
+            if (_this.predicates.has(tag)) {
+                _this.addPredicate(tag, base, link);
+            }
+            var hash = commit(_this.name, { Links: [{ Base: base, Link: link, Tag: tag }] });
+            if (_this.backLinks.has(tag)) {
+                try {
+                    for (var _c = __values(_this.backLinks.get(tag)), _d = _c.next(); !_d.done; _d = _c.next()) {
+                        var backLink = _d.value;
+                        var repo = backLink.repo, revTag = backLink.tag;
+                        repo.put(link, base, revTag);
+                    }
+                }
+                catch (e_5_1) { e_5 = { error: e_5_1 }; }
+                finally {
+                    try {
+                        if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                    }
+                    finally { if (e_5) throw e_5.error; }
+                }
+            }
+            if (_this.selfLinks.has(tag)) {
+                try {
+                    for (var _e = __values(_this.selfLinks.get(tag)), _f = _e.next(); !_f.done; _f = _e.next()) {
+                        var revTag = _f.value;
+                        _this.put(link, base, revTag);
+                    }
+                }
+                catch (e_6_1) { e_6 = { error: e_6_1 }; }
+                finally {
+                    try {
+                        if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                    }
+                    finally { if (e_6) throw e_6.error; }
+                }
+            }
+            if (backRepo && backTag) {
+                backRepo.put(link, base, backTag);
+            }
+        });
+        /**/
         return this;
     };
     /**
-     * Adds a reciprocal to a tag that, when put(), will trigger an additional
-     * put() from the linked object from the base object.
-     * @param {T} tag the tag that will trigger the reciprocal to be put().
-     * @param {LinkRepo<L,B,string>} repo The repo that will contain the reciprocal.
-     * @param {string} backTag the tag that will be used for the reciprocal link.
-     * @returns {ThisType}
-     */
+    * Adds a reciprocal to a tag that, when put(), will trigger an additional
+    * put() from the linked object from the base object.
+    * @param {T} tag the tag that will trigger the reciprocal to be put().
+    * @param {LinkRepo<L,B,string>} repo The repo that will contain the reciprocal.
+    * @param {string} backTag the tag that will be used for the reciprocal link.
+    * @returns {ThisType}
+    */
     LinkRepo.prototype.linkBack = function (tag, backTag, repo) {
         if (backTag === void 0) { backTag = tag; }
         backTag = backTag || tag;
@@ -610,19 +682,19 @@ var LinkRepo = /** @class */ (function () {
         else {
             this.backLinks.set(tag, [entry]);
         }
-        this.recurseGuard.set(tag, 1);
+        //this.recurseGuard.set(tag, 1);
         return this;
     };
     // box example:
     // on A -insideOf B, for N: B contains N { N -nextTo A; A -nextTo N }
     // on A +insideOf B, for N: B contains N { N +nextTo A; A +nextTo N }
     /**
-     * NOT WELL TESTED
-     * Expresses a rule between 3 tags that ensures that any A triggerTag B,
-     * all C where B query.tag C, also C dependent.tag A
-     * The reverse should also be true; if not A triggerTag B, any C where
-     * B query.tag C, not C dependent.tag A
-     */
+    * NOT WELL TESTED
+    * Expresses a rule between 3 tags that ensures that any A triggerTag B,
+    * all C where B query.tag C, also C dependent.tag A
+    * The reverse should also be true; if not A triggerTag B, any C where
+    * B query.tag C, not C dependent.tag A
+    */
     LinkRepo.prototype.predicate = function (triggerTag, query, dependent) {
         var predicates = this.predicates;
         if (!query.repo)
@@ -638,10 +710,10 @@ var LinkRepo = /** @class */ (function () {
         return this;
     };
     /**
-     * NOT WELL TESTED
-     * When adding a link with the given tag, this repo will first remove any links
-     * with the same tag.  This is for one-to-one and one end of a one-to-many.
-     */
+    * NOT WELL TESTED
+    * When adding a link with the given tag, this repo will first remove any links
+    * with the same tag.  This is for one-to-one and one end of a one-to-many.
+    */
     LinkRepo.prototype.singular = function (tag) {
         this.exclusive.add(tag);
         return this;
@@ -714,12 +786,13 @@ var LinkRepo = /** @class */ (function () {
         else {
             this.selfLinks.set(fwd, [back]);
         }
+        /*
         if (mutual) {
-            this.recurseGuard.set(fwd, 2);
+          this.recurseGuard.set(fwd, 2);
+        } else {
+          this.recurseGuard.set(fwd, 1).set(back, 1);
         }
-        else {
-            this.recurseGuard.set(fwd, 1).set(back, 1);
-        }
+        */
         return this;
     };
     LinkRepo.prototype.toLinks = function (base, link, tag) {
@@ -730,84 +803,112 @@ var LinkRepo = /** @class */ (function () {
         return { Base: Base, Link: Link, Tag: Tag };
     };
     /**
-     * Gets the hash that a link would have if it existed.  Good to know if you use
-     * update() and remove()
-     * @param {Hash<B>} base the subject of the hypothetical link.
-     * @param {Hash<L>} link the object of the hypothetical link.
-     * @param {T} tag the tag of the hypothetical link.
-     * @returns {LinkHash} if the list does or will exist, this is the hash it
-     *  would have.
-     */
+    * Gets the hash that a link would have if it existed.  Good to know if you use
+    * update() and remove()
+    * @param {Hash<B>} base the subject of the hypothetical link.
+    * @param {Hash<L>} link the object of the hypothetical link.
+    * @param {T} tag the tag of the hypothetical link.
+    * @returns {LinkHash} if the list does or will exist, this is the hash it
+    *  would have.
+    */
     LinkRepo.prototype.getHash = function (base, link, tag) {
         return notError(makeHash(this.name, this.toLinks(base, link, tag)));
     };
     // FIXME this looks pretty gnarly
     /**
-     * Remove the link with the specified base, link, and tag.  Reciprocal links
-     * entered by linkBack() will also be removed.
-     * @param {Hash<B>} base the base of the link to remove.
-     * @param {Hash<L>} link the base of the link to remove.
-     * @param {T} tag the tag of the link to remove
-     * @returns {LinkHash} but not really useful.  Expect to change.
-     */
+    * Remove the link with the specified base, link, and tag.  Reciprocal links
+    * entered by linkBack() will also be removed.
+    * @param {Hash<B>} base the base of the link to remove.
+    * @param {Hash<L>} link the base of the link to remove.
+    * @param {T} tag the tag of the link to remove
+    * @returns {LinkHash} but not really useful.  Expect to change.
+    */
     LinkRepo.prototype.remove = function (base, link, tag) {
-        var e_11, _a, e_12, _b;
+        var _this = this;
         var presentLink = this.toLinks(base, link, tag);
         var hash = notError(makeHash(this.name, presentLink));
-        var rg = this.recurseGuard;
-        var rgv = rg.has(tag) ? rg.get(tag) : 1;
-        if (!rgv--) {
-            return this;
-        }
+        // ADD THIS BACK ONCE I KNOW WHAT IS GOING ON WITH REPO UPDATES
         //if (get(hash) === HC.HashNotFound) return this;
+        /*
+        const rg = this.recurseGuard;
+        let rgv = rg.has(tag) ? rg.get(tag) : 1;
+        if (!rgv--) {
+          return this;
+        }
+     
+        //if (get(hash) === HC.HashNotFound) return this;
+     
         presentLink.Links[0].LinkAction = HC.LinkAction.Del;
-        hash = notError(commit(this.name, presentLink));
+        hash = notError<LinkHash>(commit(this.name, presentLink));
+     
         rg.set(tag, rgv);
+     
         if (this.backLinks.has(tag)) {
-            try {
-                for (var _c = __values(this.backLinks.get(tag)), _d = _c.next(); !_d.done; _d = _c.next()) {
-                    var _e = _d.value, repo = _e.repo, backTag = _e.tag;
-                    repo.remove(link, base, backTag);
-                }
-            }
-            catch (e_11_1) { e_11 = { error: e_11_1 }; }
-            finally {
-                try {
-                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
-                }
-                finally { if (e_11) throw e_11.error; }
-            }
+          for (let {repo, tag: backTag} of this.backLinks.get(tag)) {
+            repo.remove(link, base, backTag);
+          }
         }
         if (this.selfLinks.has(tag)) {
-            try {
-                for (var _f = __values(this.selfLinks.get(tag)), _g = _f.next(); !_g.done; _g = _f.next()) {
-                    var back = _g.value;
-                    this.remove(link, base, back);
-                }
-            }
-            catch (e_12_1) { e_12 = { error: e_12_1 }; }
-            finally {
-                try {
-                    if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
-                }
-                finally { if (e_12) throw e_12.error; }
-            }
+          for (let back of this.selfLinks.get(tag)) {
+            this.remove(link, base, back);
+          }
         }
         if (this.predicates.has(tag)) {
-            this.removePredicate(tag, base, link);
+          this.removePredicate(tag, base, link);
         }
+     
         rg.set(tag, ++rgv);
+        /*/
+        this.guard(base, link, tag, '-', function () {
+            var e_11, _a, e_12, _b;
+            presentLink.Links[0].LinkAction = HC.LinkAction.Del;
+            hash = notError(commit(_this.name, presentLink));
+            if (_this.backLinks.has(tag)) {
+                try {
+                    for (var _c = __values(_this.backLinks.get(tag)), _d = _c.next(); !_d.done; _d = _c.next()) {
+                        var _e = _d.value, repo = _e.repo, backTag = _e.tag;
+                        repo.remove(link, base, backTag);
+                    }
+                }
+                catch (e_11_1) { e_11 = { error: e_11_1 }; }
+                finally {
+                    try {
+                        if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                    }
+                    finally { if (e_11) throw e_11.error; }
+                }
+            }
+            if (_this.selfLinks.has(tag)) {
+                try {
+                    for (var _f = __values(_this.selfLinks.get(tag)), _g = _f.next(); !_g.done; _g = _f.next()) {
+                        var back = _g.value;
+                        _this.remove(link, base, back);
+                    }
+                }
+                catch (e_12_1) { e_12 = { error: e_12_1 }; }
+                finally {
+                    try {
+                        if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
+                    }
+                    finally { if (e_12) throw e_12.error; }
+                }
+            }
+            if (_this.predicates.has(tag)) {
+                _this.removePredicate(tag, base, link);
+            }
+        });
+        /**/
         return this;
     };
     /**
-     * If the old link exists, remove it and replace it with the new link.  If
-     * the old link doesn't exist, put() the new one.  As always, reciprocal links
-     * are managed with no additional work.  Note that both arguments are the
-     * holochain.Links type, complete with CamelCaseNames.
-     * @param {holochain.Link} old The link to be replaced.
-     * @param {holochain.Link} update The link to replace it with.
-     * @returns {LinkHash} A hash that you can't use for much.  Expect to change.
-     */
+    * If the old link exists, remove it and replace it with the new link.  If
+    * the old link doesn't exist, put() the new one.  As always, reciprocal links
+    * are managed with no additional work.  Note that both arguments are the
+    * holochain.Links type, complete with CamelCaseNames.
+    * @param {holochain.Link} old The link to be replaced.
+    * @param {holochain.Link} update The link to replace it with.
+    * @returns {LinkHash} A hash that you can't use for much.  Expect to change.
+    */
     LinkRepo.prototype.replace = function (old, update) {
         var oldHash = this.getHash(old.Base, old.Link, old.Tag);
         if (get(oldHash) === HC.HashNotFound) {
@@ -943,8 +1044,6 @@ var LinkRepo = /** @class */ (function () {
         }
         return repo;
     };
-    // FIXME - a dump only seems to want to show the 1 rule, but applies them all
-    // just fine.
     LinkRepo.prototype.rules = function (a, b, c) {
         var _this = this;
         if (a === void 0) { a = "subject"; }
@@ -964,7 +1063,7 @@ var LinkRepo = /** @class */ (function () {
         };
         var tagFar = function (n, home) {
             if (home === void 0) { home = _this; }
-            return ("\n        " + n + "\n        " + (home !== _this ? ":" + foreign(home.userName) : '') + "\n       ").fixed();
+            return ("\n        " + (home !== _this ? foreign(home.userName) + ":" : '') + n + "\n       ").fixed();
         };
         try {
             for (var _j = __values(backLinks.entries()), _k = _j.next(); !_k.done; _k = _j.next()) {
@@ -1022,7 +1121,7 @@ var LinkRepo = /** @class */ (function () {
                 try {
                     for (var plist_1 = __values(plist), plist_1_1 = plist_1.next(); !plist_1_1.done; plist_1_1 = plist_1.next()) {
                         var _u = plist_1_1.value, query_4 = _u.query, dependent = _u.dependent;
-                        rules.push("\n           If " + name(a) + " " + tagNear(trigger) + " " + name(b) + "\n           => All " + name(c) + "\n           where " + name(b) + " " + tagNear(query_4.tag, query_4.repo) + " " + name(c) + ",\n           => " + name(c) + " " + tagFar(dependent.tag, dependent.repo) + " " + name(a) + "\n         ");
+                        rules.push("All " + name(a) + " " + tagNear(trigger) + " " + name(b) + "\n           => for " + name(c) + "\n           where " + name(b) + " " + tagNear(query_4.tag, query_4.repo) + " " + name(c) + "\n           => " + name(c) + " " + tagFar(dependent.tag, dependent.repo) + " " + name(a) + "\n         ");
                     }
                 }
                 catch (e_23_1) { e_23 = { error: e_23_1 }; }
@@ -1044,7 +1143,7 @@ var LinkRepo = /** @class */ (function () {
         try {
             for (var _v = __values(exclusive.values()), _w = _v.next(); !_w.done; _w = _v.next()) {
                 var singular_1 = _w.value;
-                rules.push("\n         Any " + name(a) + " " + tagNear(singular_1) + " " + name(b) + "\n         =>\n         No " + name(a) + " " + tagNear(singular_1) + " " + name(c) + "\n       ");
+                rules.push("\n         All " + name(a) + " " + tagNear(singular_1) + " " + name(b) + "\n         =>\n         No " + name(a) + " " + tagNear(singular_1) + " " + name(c) + "\n       ");
             }
         }
         catch (e_24_1) { e_24 = { error: e_24_1 }; }
@@ -1058,13 +1157,17 @@ var LinkRepo = /** @class */ (function () {
     };
     return LinkRepo;
 }());
-// no. LinkRepo = LinkRepo;
 /**
  * Begin test system
  */
 function updateRepo(hash, repo) {
+    /* Eh?!  The user link functions prove that remove and put work, yet here,
+     * the links "Name repo Repo" persist after updates.  How can this be?
+     * Er, it looks fine now with the old JS..  Changing it back....?!?!
+     */
     var nhash = hashByName(repo.userName);
     var rhash = notError(commit("Repo", repo.serial())); //notError(update(`Repo`, repo.serial(), hash));
+    //repos.get(nhash, `repo`).removeAll();
     repos.remove(nhash, hash, "repo");
     repos.put(nhash, rhash, "repo");
 }
@@ -1201,6 +1304,14 @@ function dumpIsEmpty(d) {
     return true;
 }
 function dump(opt) {
+    if (!(opt.links || opt.rules || opt.elements)) {
+        opt.links = opt.rules = opt.elements = true;
+    }
+    else {
+        opt.links = opt.links || false;
+        opt.rules = opt.rules || false;
+        opt.elements = opt.elements || false;
+    }
     var dict = {};
     try {
         var everything = scope.get(root(), "scope");
@@ -1222,6 +1333,12 @@ function dump(opt) {
             var info = {};
             if (opt.links !== false) {
                 var links = userLinks.get(hash);
+                try {
+                    var internals = links.tags("repo", "query", "element");
+                    links = links.notIn(internals);
+                }
+                catch (e) {
+                }
                 if (opt.tags)
                     links = links.tags.apply(links, __spread(opt.tags));
                 if (links.length)

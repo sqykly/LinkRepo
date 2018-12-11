@@ -134,6 +134,7 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * chainable, and the original object will be empty as well.
    */
   removeAll(): void {
+    /*
     this.forEach( (link: holochain.GetLinksResponse, index:number) => {
       let target = link.Hash, tag = link.Tag;
       try {
@@ -143,6 +144,14 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
       }
     });
     let foo = this.splice(0, this.length);
+    /*/
+    commit(this.origin.name, { Links: this.map(link => ({
+      Base: this.baseHash,
+      Link: link.Hash,
+      Tag: link.Tag,
+      LinkAction: HC.LinkAction.Del
+    }))});
+    /**/
   }
 
   /**
@@ -216,6 +225,51 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return chosen;
   }
 
+  private descEntry(args: {Hash: Hash<B>, Tag?: string, EntryType?: string}): string {
+    const {Hash, Tag, EntryType} = args;
+    return `${Tag || `no-tag`} ${Hash}:${EntryType || `no-type`}`;
+  }
+
+  private desc(): string[] {
+    return this.map(this.descEntry);
+  }
+
+  notIn<Bn extends B, Ln extends L, TagsN extends Tags, Tn extends Ln>
+  (ls: LinkSet<Bn,Ln,TagsN,Tn>): LinkSet<B,L,Tags,T> {
+    if (ls.origin !== this.origin || ls.baseHash !== this.baseHash) {
+      return new LinkSet(this, this.origin, this.baseHash);
+    }
+    const inLs = new Set<string>(ls.desc());
+
+    return new LinkSet(
+      this.filter((link) => {
+        return !inLs.has(this.descEntry(link));
+      }),
+      this.origin,
+      this.baseHash,
+      undefined,
+      this.loaded
+    );
+  }
+
+  andIn<La extends L, TagsA extends string, Ta extends La>
+  (ls: LinkSet<B,La,TagsA,Ta>): LinkSet<B, L, Tags, T> {
+
+    if (this.baseHash !== ls.baseHash) {
+      return new LinkSet([], this.origin, this.baseHash);
+    }
+
+    const inLs = new Set<string>(ls.desc());
+
+    return new LinkSet(
+      this.filter((link) => inLs.has(this.descEntry(link))),
+      this.origin,
+      this.baseHash,
+      undefined,
+      this.loaded
+    );
+  }
+
 
 }
 
@@ -230,9 +284,11 @@ interface Tag<B,L, T extends string> {
  *  That kind of undermines the concept of it being a repository.
  *    Can't fake it with tags, since tag strings are types and are gone at runtime
  *
- *  The recursion guard seems overzealous, stopping the application of a reciprocal
+ *  FIXED: The recursion guard seems overzealous, stopping the application of a reciprocal
  *  tag unnecessarily.  Sometimes.  Maybe not the first time?
- *    Should be addressable with debug()
+ *    Fixed by entering a full description of the event ("A +tag B") in the RG,
+ *    doing away with the notion of how many times a tag can be repeated in the
+ *    stack.
  *
  *  update() does not appear to work in the test system for load/store repos.
  *
@@ -242,6 +298,7 @@ interface Tag<B,L, T extends string> {
  *    repos, it is possible that it is finding old versions by using the first
  *    of an array of all of its versions.  BUT it shouldn't be able to find
  *    an old version without asking for it specifically, right?
+ *
  */
 
 /**
@@ -263,10 +320,22 @@ export class LinkRepo<B, L, T extends string = string> {
    * @param {string} name the exact dna.zomes[].Entries.Name that this repo will
    *  represent.
    */
-  constructor (protected name: string) {}
+  constructor (public readonly name: string) {}
 
   protected backLinks = new Map<T, Tag<L|B,B|L, T|string>[]>();
+  /*
   protected recurseGuard = new Map<T, number>();
+  /*/
+  protected recurseGuard = new Set<string>();
+  protected guard(base: Hash<B>, link: Hash<L>, tag: T, op: '+'|'-', fn: () => void) {
+    const descript = `${base} ${op}${tag} ${link}`;
+    if (!this.recurseGuard.has(descript)) {
+      this.recurseGuard.add(descript);
+      fn();
+      this.recurseGuard.delete(descript);
+    }
+  }
+  /**/
   protected selfLinks = new Map<T, T[]>();
   protected predicates = new Map<
     T,
@@ -284,10 +353,9 @@ export class LinkRepo<B, L, T extends string = string> {
    * Produce a LinkSet including all parameter-specified queries.
    * @param {Hash<B>} base this is the Base entry  whose outward links will
    *  be recovered.
-   * @param {string} tag this is the tag or tags you want to filter by.
-   *  If given an empty string or omitted, all links in this repo are retrieved.
-   *  To allow multiple tags to be returned, put them in this string separated
-   *  by the pipe character ('|')
+   * @param {string} ...tags this is the tag or tags you want to filter by.  If
+   *  omitted, all tags will be included - including those from other repos, so
+   *  consider filtering the result by type or source afterward.
    * @param {holochain.LinksOptions} options options that will be passed to getLinks
    *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
    *  LinksOptions.
@@ -328,6 +396,7 @@ export class LinkRepo<B, L, T extends string = string> {
    *  it to be chainable.
    */
   put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
+    /*
     const rg = this.recurseGuard;
     let rgv = rg.has(tag) ? rg.get(tag) : 1;
 
@@ -363,6 +432,33 @@ export class LinkRepo<B, L, T extends string = string> {
     }
 
     rg.set(tag, ++rgv);
+    /*/
+    this.guard(base, link, tag, '+', () => {
+      if (this.exclusive.has(tag)) {
+        this.get(base, tag).removeAll();
+      }
+      if (this.predicates.has(tag)) {
+        this.addPredicate(tag, base, link);
+      }
+
+      const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag}] });
+
+      if (this.backLinks.has(tag)) {
+        for (let backLink of this.backLinks.get(tag)) {
+          let {repo, tag: revTag} = backLink;
+          repo.put(link, base, revTag);
+        }
+      }
+      if (this.selfLinks.has(tag)) {
+        for (let revTag of this.selfLinks.get(tag)) {
+          this.put(link, base, revTag);
+        }
+      }
+      if (backRepo && backTag) {
+        backRepo.put(link, base, backTag);
+      }
+    })
+    /**/
     return this;
   }
 
@@ -386,7 +482,7 @@ export class LinkRepo<B, L, T extends string = string> {
     } else {
       this.backLinks.set(tag, [entry]);
     }
-    this.recurseGuard.set(tag, 1);
+    //this.recurseGuard.set(tag, 1);
     return this;
   }
 
@@ -457,11 +553,13 @@ export class LinkRepo<B, L, T extends string = string> {
     } else {
       this.selfLinks.set(fwd, [back]);
     }
+    /*
     if (mutual) {
       this.recurseGuard.set(fwd, 2);
     } else {
       this.recurseGuard.set(fwd, 1).set(back, 1);
     }
+    */
     return this;
   }
   private toLinks(base: Hash<B>, link: Hash<L>, tag: T): holochain.LinksEntry {
@@ -500,8 +598,12 @@ export class LinkRepo<B, L, T extends string = string> {
    */
   remove(base: Hash<B>, link: Hash<L>, tag: T): this {
     let presentLink = this.toLinks(base, link, tag);
-    let hash = notError<LinkHash>(makeHash(this.name, presentLink));
+    // Not going to happen.  makeHash doesn't work out for links.  Nor get.
+    //let hash = notError<LinkHash>(makeHash(this.name, presentLink));
+    // ADD THIS BACK ONCE THE TEST SYSTEM ISSUE IS WORKED OUT
+    //if (get(hash) === HC.HashNotFound) return this;
 
+    /*
     const rg = this.recurseGuard;
     let rgv = rg.has(tag) ? rg.get(tag) : 1;
     if (!rgv--) {
@@ -530,6 +632,26 @@ export class LinkRepo<B, L, T extends string = string> {
     }
 
     rg.set(tag, ++rgv);
+    /*/
+    this.guard(base, link, tag, '-', () => {
+      presentLink.Links[0].LinkAction = HC.LinkAction.Del;
+      let hash = notError<LinkHash>(commit(this.name, presentLink));
+
+      if (this.backLinks.has(tag)) {
+        for (let {repo, tag: backTag} of this.backLinks.get(tag)) {
+          repo.remove(link, base, backTag);
+        }
+      }
+      if (this.selfLinks.has(tag)) {
+        for (let back of this.selfLinks.get(tag)) {
+          this.remove(link, base, back);
+        }
+      }
+      if (this.predicates.has(tag)) {
+        this.removePredicate(tag, base, link);
+      }
+    });
+    /**/
     return this;
   }
 

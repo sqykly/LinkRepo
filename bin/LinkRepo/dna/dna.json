@@ -124,6 +124,11 @@
                     "Name": "singular",
                     "CallingType": "json",
                     "Exposure": "public"
+                },
+                {
+                  "Name": "wtf",
+                  "CallingType": "json",
+                  "Exposure": "public"
                 }
             ]
         }

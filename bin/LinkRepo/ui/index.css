@@ -3,6 +3,10 @@ textarea#input {
   display: block;
 }
 
+a {
+  text-decoration: none;
+}
+
 /* an array displays
   <ol.array>
     <li.item> <.value/> </li.item>

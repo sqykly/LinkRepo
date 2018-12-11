@@ -221,9 +221,50 @@ interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
       return chosen;
     }
 
+    private descEntry(args: {Hash: Hash<B>, Tag?: string, EntryType?: string}): string {
+      const {Hash, Tag, EntryType} = args;
+      return `${Tag || `no-tag`} ${Hash}:${EntryType || `no-type`}`;
+    }
 
+    private desc(): string[] {
+      return this.map(this.descEntry);
+    }
 
+    notIn<Bn extends B, Ln extends L, TagsN extends Tags, Tn extends Ln>
+    (ls: LinkSet<Bn,Ln,TagsN,Tn>): LinkSet<B,L,Tags,T> {
+      if (ls.origin !== this.origin || ls.baseHash !== this.baseHash) {
+        return new LinkSet(this, this.origin, this.baseHash);
+      }
+      const inLs = new Set<string>(ls.desc());
 
+      return new LinkSet(
+        this.filter((link) => {
+          return !inLs.has(this.descEntry(link));
+        }),
+        this.origin,
+        this.baseHash,
+        undefined,
+        this.loaded
+      );
+    }
+
+    andIn<La extends L, TagsA extends string, Ta extends La>
+    (ls: LinkSet<B,La,TagsA,Ta>): LinkSet<B, L, Tags, T> {
+
+      if (this.baseHash !== ls.baseHash) {
+        return new LinkSet([], this.origin, this.baseHash);
+      }
+
+      const inLs = new Set<string>(ls.desc());
+
+      return new LinkSet(
+        this.filter((link) => inLs.has(this.descEntry(link))),
+        this.origin,
+        this.baseHash,
+        undefined,
+        this.loaded
+      );
+    }
 
    serial(): QueryEntry {
      return {
@@ -262,109 +303,149 @@ interface Tag<B,L, T extends string> {
    repo: LinkRepo<B,L,T>
 }
 
- /**
-  * LinkRepo encapsulates all kinds of links.  Used for keeping track of reciprocal
-  * links, managing DHT interactions that are otherwise nuanced, producing
-  * LinkSet objects, maintaining type-safe Hash types, and defending against
-  * recursive reciprocal links.
-  * @arg {object} B The union of types that can be the Base of the Links
-  * @arg {object} L The union of types that can be the Link of the Links
-  *  If there are reciprocal links within this LinkRepo, it's safest for B and L
-  *  to be identical.
-  * @arg {string} T.  This is a union of the tag strings used in this repo.
-  *  If you don't want to know when you put the wrong tag in the wrong Repo, go
-  *  ahead and let it default to string.  Do not use tags that include the pipe
-  *  character, '|'; union the strings themselves like "foo"|"bar"|"baz"
-  */
- export class LinkRepo<B, L, T extends string = string> {
-   /**
-    * @param {string} name the exact dna.zomes[].Entries.Name that this repo will
-    *  represent.
-    */
-   constructor (protected name: string) {}
-   userName: string;
-   protected backLinks = new Map<T, Tag<L|B,B|L, T|string>[]>();
-   protected recurseGuard = new Map<T, number>();
-   protected selfLinks = new Map<T, T[]>();
-   protected predicates = new Map<
-     T,
-     { query: Tag<L|B, B|L, T|string>, dependent: Tag<L|B, B|L, T|string> }[]
-   >();
-   protected exclusive = new Set<T>();
-   readonly BASE: B;
-   readonly LINK: L;
-   readonly TAGS: T;
+/**
+ * LinkRepo encapsulates all kinds of links.  Used for keeping track of reciprocal
+ * links, managing DHT interactions that are otherwise nuanced, producing
+ * LinkSet objects, maintaining type-safe Hash types, and defending against
+ * recursive reciprocal links.
+ * @arg {object} B The union of types that can be the Base of the Links
+ * @arg {object} L The union of types that can be the Link of the Links
+ *  If there are reciprocal links within this LinkRepo, it's safest for B and L
+ *  to be identical.
+ * @arg {string} T.  This is a union of the tag strings used in this repo.
+ *  If you don't want to know when you put the wrong tag in the wrong Repo, go
+ *  ahead and let it default to string.  Do not use tags that include the pipe
+ *  character, '|'; union the strings themselves like "foo"|"bar"|"baz"
+ */
+class LinkRepo<B, L, T extends string = string> {
+	userName: any;
+  /**
+   * @param {string} name the exact dna.zomes[].Entries.Name that this repo will
+   *  represent.
+   */
+  constructor (protected name: string) {}
 
-   tag<Ts extends T>(t: Ts): Tag<B, L, T> {
-     return { tag: t, repo: this };
+  protected backLinks = new Map<T, Tag<L|B,B|L, T|string>[]>();
+  /*
+  protected recurseGuard = new Map<T, number>();
+  /*/
+  protected recurseGuard = new Set<string>();
+  protected guard(base: Hash<B>, link: Hash<L>, tag: T, op: '+'|'-', fn: () => void) {
+   const descript = `${base} ${op}${tag} ${link}`;
+   if (!this.recurseGuard.has(descript)) {
+     this.recurseGuard.add(descript);
+     fn();
+     this.recurseGuard.delete(descript);
+   }
+  }
+  /**/
+  protected selfLinks = new Map<T, T[]>();
+  protected predicates = new Map<
+   T,
+   { query: Tag<L|B, B|L, T|string>, dependent: Tag<L|B, B|L, T|string> }[]
+  >();
+  protected exclusive = new Set<T>();
+  readonly BASE: B;
+  readonly LINK: L;
+  readonly TAGS: T;
+
+  tag<Ts extends T>(t: Ts): Tag<B, L, T> {
+   return { tag: t, repo: this };
+  }
+  /**
+  * Produce a LinkSet including all parameter-specified queries.
+  * @param {Hash<B>} base this is the Base entry  whose outward links will
+  *  be recovered.
+  * @param {string} tag this is the tag or tags you want to filter by.
+  *  If given an empty string or omitted, all links in this repo are retrieved.
+  *  To allow multiple tags to be returned, put them in this string separated
+  *  by the pipe character ('|')
+  * @param {holochain.LinksOptions} options options that will be passed to getLinks
+  *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
+  *  LinksOptions.
+  * @returns {LinkSet<B>} containing the query result.
+  */
+  get(base: Hash<B>, ...tags: T[]): LinkSet<B,L,T,L> {
+   const options = {Load: true};
+   if (tags.length === 0) {
+     return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, '', options)), this, base);
+   }
+   let responses: holochain.GetLinksResponse[] = [];
+
+   for (let tag of tags) {
+     let response = <holochain.GetLinksResponse[]>getLinks(base, tag, options);
+     for (let lnk of response) {
+       lnk.Tag = tag;
+     }
+     responses = responses.concat(response);
    }
 
-    /**
-     * Produce a LinkSet including all parameter-specified queries.
-     * @param {Hash<B>} base this is the Base entry  whose outward links will
-     *  be recovered.
-     * @param {string} tag this is the tag or tags you want to filter by.
-     *  If given an empty string or omitted, all links in this repo are retrieved.
-     *  To allow multiple tags to be returned, put them in this string separated
-     *  by the pipe character ('|')
-     * @param {holochain.LinksOptions} options options that will be passed to getLinks
-     *  Be aware that the LinkSet will NOT know about these.  Defaults to the default
-     *  LinksOptions.
-     * @returns {LinkSet<B>} containing the query result.
-     */
-     get(base: Hash<B>, ...tags: T[]): LinkSet<B,L,T,L> {
-       const options = {Load: true};
-       if (tags.length === 0) {
-         return new LinkSet<B,L,T,L>(<holochain.GetLinksResponse[]> notError(getLinks(base, '', options)), this, base);
-       }
-       let responses: holochain.GetLinksResponse[] = [];
+   return new LinkSet<B,L,T,L>(responses, this, base);
+  }
 
-       for (let tag of tags) {
-         let response = <holochain.GetLinksResponse[]>getLinks(base, tag, options);
-         for (let lnk of response) {
-           lnk.Tag = tag;
-         }
-         responses = responses.concat(response);
-       }
+  /**
+  * Commits a new link to the DHT.
+  * @param {Hash<B>} base the base of the link.  This is the object you can query by.
+  * @param {Hash<L>} link the linked object of the link.  This is the object you
+  *  CAN'T query by, which is the object of the tag.
+  * @param {T} tag the tag for the link, of which base is the object.
+  * @param {LinkRepo<L, B>?} backRepo optional repo that will contain a reciprocal
+  *  link.  Any reciprocals already registered via linkBack() are already covered;
+  *  Use that method instead when possible.
+  * @param {string?} backTag optional but mandatory if backRepo is specified.
+  *  this is the tag used for the reciprocal link in addition to those already
+  *  entered into the repo; there is no need to repeat this information if
+  *  the reciprocal has been entered already via linkBack
+  * @returns {LinkHash} a hash of the link, but that's pretty useless, so I'll probably end up changing
+  *  it to be chainable.
+  */
+  put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
+   /*
+   const rg = this.recurseGuard;
+   let rgv = rg.has(tag) ? rg.get(tag) : 1;
 
-       return new LinkSet<B,L,T,L>(responses, this, base);
+   if (!rgv--) return this;
+
+   if (this.exclusive.has(tag)) {
+     this.get(base, tag).removeAll();
+   }
+   rg.set(tag, rgv);
+
+
+
+   if (this.predicates.has(tag)) {
+     this.addPredicate(tag, base, link);
+   }
+
+   const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag}] });
+
+
+   if (this.backLinks.has(tag)) {
+     for (let backLink of this.backLinks.get(tag)) {
+       let {repo, tag: revTag} = backLink;
+       repo.put(link, base, revTag);
      }
+   }
+   if (this.selfLinks.has(tag)) {
+     for (let revTag of this.selfLinks.get(tag)) {
+       this.put(link, base, revTag);
+     }
+   }
+   if (backRepo && backTag) {
+     backRepo.put(link, base, backTag);
+   }
 
-   /**
-    * Commits a new link to the DHT.
-    * @param {Hash<B>} base the base of the link.  This is the object you can query by.
-    * @param {Hash<L>} link the linked object of the link.  This is the object you
-    *  CAN'T query by, which is the object of the tag.
-    * @param {T} tag the tag for the link, of which base is the object.
-    * @param {LinkRepo<L, B>?} backRepo optional repo that will contain a reciprocal
-    *  link.  Any reciprocals already registered via linkBack() are already covered;
-    *  Use that method instead when possible.
-    * @param {string?} backTag optional but mandatory if backRepo is specified.
-    *  this is the tag used for the reciprocal link in addition to those already
-    *  entered into the repo; there is no need to repeat this information if
-    *  the reciprocal has been entered already via linkBack
-    * @returns {LinkHash} a hash of the link, but that's pretty useless, so I'll probably end up changing
-    *  it to be chainable.
-    */
-   put(base: Hash<B>, link: Hash<L>, tag: T, backRepo?: LinkRepo<L, B>, backTag?: string): this {
-     const rg = this.recurseGuard;
-     let rgv = rg.has(tag) ? rg.get(tag) : 1;
-
-     if (!rgv--) return this;
-
+   rg.set(tag, ++rgv);
+   /*/
+   this.guard(base, link, tag, '+', () => {
      if (this.exclusive.has(tag)) {
        this.get(base, tag).removeAll();
      }
-     rg.set(tag, rgv);
-
-
-
      if (this.predicates.has(tag)) {
        this.addPredicate(tag, base, link);
      }
 
      const hash = commit(this.name, { Links: [{Base: base, Link: link, Tag: tag}] });
-
 
      if (this.backLinks.has(tag)) {
        for (let backLink of this.backLinks.get(tag)) {
@@ -380,159 +461,184 @@ interface Tag<B,L, T extends string> {
      if (backRepo && backTag) {
        backRepo.put(link, base, backTag);
      }
+   })
+   /**/
+   return this;
+  }
 
-     rg.set(tag, ++rgv);
+  /**
+  * Adds a reciprocal to a tag that, when put(), will trigger an additional
+  * put() from the linked object from the base object.
+  * @param {T} tag the tag that will trigger the reciprocal to be put().
+  * @param {LinkRepo<L,B,string>} repo The repo that will contain the reciprocal.
+  * @param {string} backTag the tag that will be used for the reciprocal link.
+  * @returns {ThisType}
+  */
+  linkBack(tag: T, backTag: T|string = tag, repo?: LinkRepo<L|B, B|L, string>): this {
+   backTag = backTag || tag;
+   if (!repo || repo === this) {
+     return this.internalLinkback(tag, <T>backTag);
+   }
+   const entry = { repo, tag: backTag };
+   if (this.backLinks.has(tag)) {
+     let existing = this.backLinks.get(tag);
+     existing.push(entry);
+   } else {
+     this.backLinks.set(tag, [entry]);
+   }
+   //this.recurseGuard.set(tag, 1);
+   return this;
+  }
+
+  // box example:
+  // on A -insideOf B, for N: B contains N { N -nextTo A; A -nextTo N }
+  // on A +insideOf B, for N: B contains N { N +nextTo A; A +nextTo N }
+  /**
+  * NOT WELL TESTED
+  * Expresses a rule between 3 tags that ensures that any A triggerTag B,
+  * all C where B query.tag C, also C dependent.tag A
+  * The reverse should also be true; if not A triggerTag B, any C where
+  * B query.tag C, not C dependent.tag A
+  */
+  predicate<T2 extends string = T, T3 extends string = T>(
+   triggerTag: T,
+   query: { tag: T2, repo: LinkRepo<L|B, B|L, T2|T> },
+   dependent: { tag: T3, repo: LinkRepo<L|B, B|L, T3|T> }
+  ): this {
+   let {predicates} = this;
+   if (!query.repo) query.repo = this;
+   if (!dependent.repo) dependent.repo = this;
+
+   if (predicates.has(triggerTag)) {
+     predicates.get(triggerTag).push({query, dependent});
+   } else {
+     predicates.set(triggerTag, [{query, dependent}]);
+   }
+
+   return this;
+  }
+
+  /**
+  * NOT WELL TESTED
+  * When adding a link with the given tag, this repo will first remove any links
+  * with the same tag.  This is for one-to-one and one end of a one-to-many.
+  */
+  singular(tag: T): this {
+   this.exclusive.add(tag);
+   return this;
+  }
+
+  private addPredicate(trigger: T, subj: Hash<B>, obj: Hash<L>) {
+   const triggered = this.predicates.get(trigger);
+
+   for (let {query, dependent} of triggered) {
+     let queried = query.repo.get(obj, query.tag).hashes();
+     for (let q of queried) {
+       dependent.repo.put(q, subj, dependent.tag);
+     }
+   }
+  }
+
+  private removePredicate(trigger: T, subj: Hash<B>, obj: Hash<L>) {
+   const triggered = this.predicates.get(trigger);
+
+   for (let {query, dependent} of triggered) {
+     let queried = query.repo.get(obj, query.tag).hashes();
+     for (let q of queried) {
+       dependent.repo.remove(q, subj, dependent.tag);
+     }
+   }
+  }
+
+  private internalLinkback(fwd: T, back: T): this {
+   const mutual = fwd === back;
+   if (this.selfLinks.has(fwd)) {
+     this.selfLinks.get(fwd).push(back);
+   } else {
+     this.selfLinks.set(fwd, [back]);
+   }
+   /*
+   if (mutual) {
+     this.recurseGuard.set(fwd, 2);
+   } else {
+     this.recurseGuard.set(fwd, 1).set(back, 1);
+   }
+   */
+   return this;
+  }
+  private toLinks(base: Hash<B>, link: Hash<L>, tag: T): holochain.LinksEntry {
+   return { Links: [{ Base: base, Link: link, Tag: tag }] }
+  }
+
+  private unLinks(links: holochain.LinksEntry): {Base: Hash<B>, Link: Hash<L>, Tag: T} {
+   let {Base, Link, Tag} = links.Links[0];
+
+   return {Base: <Hash<B>>Base, Link: <Hash<L>>Link, Tag: <T>Tag};
+  }
+
+  /**
+  * Gets the hash that a link would have if it existed.  Good to know if you use
+  * update() and remove()
+  * @param {Hash<B>} base the subject of the hypothetical link.
+  * @param {Hash<L>} link the object of the hypothetical link.
+  * @param {T} tag the tag of the hypothetical link.
+  * @returns {LinkHash} if the list does or will exist, this is the hash it
+  *  would have.
+  */
+  getHash(base: Hash<B>, link: Hash<L>, tag: T): LinkHash {
+   return notError<LinkHash>(
+     makeHash(this.name, this.toLinks(base, link, tag))
+   );
+  }
+
+  // FIXME this looks pretty gnarly
+  /**
+  * Remove the link with the specified base, link, and tag.  Reciprocal links
+  * entered by linkBack() will also be removed.
+  * @param {Hash<B>} base the base of the link to remove.
+  * @param {Hash<L>} link the base of the link to remove.
+  * @param {T} tag the tag of the link to remove
+  * @returns {LinkHash} but not really useful.  Expect to change.
+  */
+  remove(base: Hash<B>, link: Hash<L>, tag: T): this {
+   let presentLink = this.toLinks(base, link, tag);
+   let hash = notError<LinkHash>(makeHash(this.name, presentLink));
+   // ADD THIS BACK ONCE I KNOW WHAT IS GOING ON WITH REPO UPDATES
+   //if (get(hash) === HC.HashNotFound) return this;
+
+   /*
+   const rg = this.recurseGuard;
+   let rgv = rg.has(tag) ? rg.get(tag) : 1;
+   if (!rgv--) {
      return this;
    }
 
-   /**
-    * Adds a reciprocal to a tag that, when put(), will trigger an additional
-    * put() from the linked object from the base object.
-    * @param {T} tag the tag that will trigger the reciprocal to be put().
-    * @param {LinkRepo<L,B,string>} repo The repo that will contain the reciprocal.
-    * @param {string} backTag the tag that will be used for the reciprocal link.
-    * @returns {ThisType}
-    */
-   linkBack(tag: T, backTag: T|string = tag, repo?: LinkRepo<L|B, B|L, string>): this {
-     backTag = backTag || tag;
-     if (!repo || repo === this) {
-       return this.internalLinkback(tag, <T>backTag);
-     }
-     const entry = { repo, tag: backTag };
-     if (this.backLinks.has(tag)) {
-       let existing = this.backLinks.get(tag);
-       existing.push(entry);
-     } else {
-       this.backLinks.set(tag, [entry]);
-     }
-     this.recurseGuard.set(tag, 1);
-     return this;
-   }
+   //if (get(hash) === HC.HashNotFound) return this;
 
-   // box example:
-   // on A -insideOf B, for N: B contains N { N -nextTo A; A -nextTo N }
-   // on A +insideOf B, for N: B contains N { N +nextTo A; A +nextTo N }
-   /**
-    * NOT WELL TESTED
-    * Expresses a rule between 3 tags that ensures that any A triggerTag B,
-    * all C where B query.tag C, also C dependent.tag A
-    * The reverse should also be true; if not A triggerTag B, any C where
-    * B query.tag C, not C dependent.tag A
-    */
-   predicate<T2 extends string = T, T3 extends string = T>(
-     triggerTag: T,
-     query: { tag: T2, repo: LinkRepo<L|B, B|L, T2|T> },
-     dependent: { tag: T3, repo: LinkRepo<L|B, B|L, T3|T> }
-   ): this {
-     let {predicates} = this;
-     if (!query.repo) query.repo = this;
-     if (!dependent.repo) dependent.repo = this;
+   presentLink.Links[0].LinkAction = HC.LinkAction.Del;
+   hash = notError<LinkHash>(commit(this.name, presentLink));
 
-     if (predicates.has(triggerTag)) {
-       predicates.get(triggerTag).push({query, dependent});
-     } else {
-       predicates.set(triggerTag, [{query, dependent}]);
-     }
+   rg.set(tag, rgv);
 
-     return this;
-   }
-
-   /**
-    * NOT WELL TESTED
-    * When adding a link with the given tag, this repo will first remove any links
-    * with the same tag.  This is for one-to-one and one end of a one-to-many.
-    */
-   singular(tag: T): this {
-     this.exclusive.add(tag);
-     return this;
-   }
-
-   private addPredicate(trigger: T, subj: Hash<B>, obj: Hash<L>) {
-     const triggered = this.predicates.get(trigger);
-
-     for (let {query, dependent} of triggered) {
-       let queried = query.repo.get(obj, query.tag).hashes();
-       for (let q of queried) {
-         dependent.repo.put(q, subj, dependent.tag);
-       }
+   if (this.backLinks.has(tag)) {
+     for (let {repo, tag: backTag} of this.backLinks.get(tag)) {
+       repo.remove(link, base, backTag);
      }
    }
-
-   private removePredicate(trigger: T, subj: Hash<B>, obj: Hash<L>) {
-     const triggered = this.predicates.get(trigger);
-
-     for (let {query, dependent} of triggered) {
-       let queried = query.repo.get(obj, query.tag).hashes();
-       for (let q of queried) {
-         dependent.repo.remove(q, subj, dependent.tag);
-       }
+   if (this.selfLinks.has(tag)) {
+     for (let back of this.selfLinks.get(tag)) {
+       this.remove(link, base, back);
      }
    }
-
-   private internalLinkback(fwd: T, back: T): this {
-     const mutual = fwd === back;
-     if (this.selfLinks.has(fwd)) {
-       this.selfLinks.get(fwd).push(back);
-     } else {
-       this.selfLinks.set(fwd, [back]);
-     }
-     if (mutual) {
-       this.recurseGuard.set(fwd, 2);
-     } else {
-       this.recurseGuard.set(fwd, 1).set(back, 1);
-     }
-     return this;
-   }
-   private toLinks(base: Hash<B>, link: Hash<L>, tag: T): holochain.LinksEntry {
-     return { Links: [{ Base: base, Link: link, Tag: tag }] }
+   if (this.predicates.has(tag)) {
+     this.removePredicate(tag, base, link);
    }
 
-   private unLinks(links: holochain.LinksEntry): {Base: Hash<B>, Link: Hash<L>, Tag: T} {
-     let {Base, Link, Tag} = links.Links[0];
-
-     return {Base: <Hash<B>>Base, Link: <Hash<L>>Link, Tag: <T>Tag};
-   }
-
-   /**
-    * Gets the hash that a link would have if it existed.  Good to know if you use
-    * update() and remove()
-    * @param {Hash<B>} base the subject of the hypothetical link.
-    * @param {Hash<L>} link the object of the hypothetical link.
-    * @param {T} tag the tag of the hypothetical link.
-    * @returns {LinkHash} if the list does or will exist, this is the hash it
-    *  would have.
-    */
-   getHash(base: Hash<B>, link: Hash<L>, tag: T): LinkHash {
-     return notError<LinkHash>(
-       makeHash(this.name, this.toLinks(base, link, tag))
-     );
-   }
-
-   // FIXME this looks pretty gnarly
-   /**
-    * Remove the link with the specified base, link, and tag.  Reciprocal links
-    * entered by linkBack() will also be removed.
-    * @param {Hash<B>} base the base of the link to remove.
-    * @param {Hash<L>} link the base of the link to remove.
-    * @param {T} tag the tag of the link to remove
-    * @returns {LinkHash} but not really useful.  Expect to change.
-    */
-   remove(base: Hash<B>, link: Hash<L>, tag: T): this {
-     let presentLink = this.toLinks(base, link, tag);
-     let hash = notError<LinkHash>(makeHash(this.name, presentLink));
-
-     const rg = this.recurseGuard;
-     let rgv = rg.has(tag) ? rg.get(tag) : 1;
-     if (!rgv--) {
-       return this;
-     }
-
-     //if (get(hash) === HC.HashNotFound) return this;
-
+   rg.set(tag, ++rgv);
+   /*/
+   this.guard(base, link, tag, '-', () => {
      presentLink.Links[0].LinkAction = HC.LinkAction.Del;
      hash = notError<LinkHash>(commit(this.name, presentLink));
-
-     rg.set(tag, rgv);
 
      if (this.backLinks.has(tag)) {
        for (let {repo, tag: backTag} of this.backLinks.get(tag)) {
@@ -547,29 +653,29 @@ interface Tag<B,L, T extends string> {
      if (this.predicates.has(tag)) {
        this.removePredicate(tag, base, link);
      }
+   });
+   /**/
+   return this;
+  }
 
-     rg.set(tag, ++rgv);
-     return this;
+  /**
+  * If the old link exists, remove it and replace it with the new link.  If
+  * the old link doesn't exist, put() the new one.  As always, reciprocal links
+  * are managed with no additional work.  Note that both arguments are the
+  * holochain.Links type, complete with CamelCaseNames.
+  * @param {holochain.Link} old The link to be replaced.
+  * @param {holochain.Link} update The link to replace it with.
+  * @returns {LinkHash} A hash that you can't use for much.  Expect to change.
+  */
+  replace(old: holochain.Link, update: holochain.Link): this {
+   let oldHash = this.getHash(old.Base, old.Link, <T>old.Tag);
+   if (get(oldHash) === HC.HashNotFound) {
+     return this.put(update.Base, update.Link, <T>update.Tag)
    }
 
-   /**
-    * If the old link exists, remove it and replace it with the new link.  If
-    * the old link doesn't exist, put() the new one.  As always, reciprocal links
-    * are managed with no additional work.  Note that both arguments are the
-    * holochain.Links type, complete with CamelCaseNames.
-    * @param {holochain.Link} old The link to be replaced.
-    * @param {holochain.Link} update The link to replace it with.
-    * @returns {LinkHash} A hash that you can't use for much.  Expect to change.
-    */
-   replace(old: holochain.Link, update: holochain.Link): this {
-     let oldHash = this.getHash(old.Base, old.Link, <T>old.Tag);
-     if (get(oldHash) === HC.HashNotFound) {
-       return this.put(update.Base, update.Link, <T>update.Tag)
-     }
-
-     this.remove(old.Base, old.Link, <T>old.Tag);
-     return this.put(update.Base, update.Link, <T>update.Tag);
-   }
+   this.remove(old.Base, old.Link, <T>old.Tag);
+   return this.put(update.Base, update.Link, <T>update.Tag);
+  }
 
    serial(): RepoEntry<Name,Name,string> {
      let back = <{[k in T]: Tagish<B,L,T>[]}>{};
@@ -657,8 +763,6 @@ interface Tag<B,L, T extends string> {
      return repo;
    }
 
-   // FIXME - a dump only seems to want to show the 1 rule, but applies them all
-   // just fine.
    rules(a: string = "subject", b: string = "object", c: string = "other"): string[] {
      const {backLinks, selfLinks, exclusive, predicates} = this;
      const rules: string[] = [];
@@ -672,8 +776,7 @@ interface Tag<B,L, T extends string> {
 
      const tagFar = (n:string, home: LinkRepo<any,any,string> = this) => {
        return `
-        ${n}
-        ${home !== this ? `:${foreign(home.userName)}` : ''}
+        ${home !== this ? `${foreign(home.userName)}:` : ''}${n}
        `.fixed();
      };
 
@@ -700,10 +803,9 @@ interface Tag<B,L, T extends string> {
 
      for (let [trigger, plist] of predicates.entries()) {
        for (let {query, dependent} of plist) {
-         rules.push(`
-           If ${name(a)} ${tagNear(trigger)} ${name(b)}
-           => All ${name(c)}
-           where ${name(b)} ${tagNear(query.tag, query.repo)} ${name(c)},
+         rules.push(`All ${name(a)} ${tagNear(trigger)} ${name(b)}
+           => for ${name(c)}
+           where ${name(b)} ${tagNear(query.tag, query.repo)} ${name(c)}
            => ${name(c)} ${tagFar(dependent.tag, dependent.repo)} ${name(a)}
          `);
        }
@@ -711,7 +813,7 @@ interface Tag<B,L, T extends string> {
 
      for (let singular of exclusive.values()) {
        rules.push(`
-         Any ${name(a)} ${tagNear(singular)} ${name(b)}
+         All ${name(a)} ${tagNear(singular)} ${name(b)}
          =>
          No ${name(a)} ${tagNear(singular)} ${name(c)}
        `);
@@ -729,8 +831,13 @@ interface Tag<B,L, T extends string> {
  */
 
 function updateRepo (hash, repo) {
+  /* Eh?!  The user link functions prove that remove and put work, yet here,
+   * the links "Name repo Repo" persist after updates.  How can this be?
+   * Er, it looks fine now with the old JS..  Changing it back....?!?!
+   */
   let nhash = hashByName(repo.userName);
   let rhash = notError(commit("Repo", repo.serial()));//notError(update(`Repo`, repo.serial(), hash));
+  //repos.get(nhash, `repo`).removeAll();
   repos.remove(nhash, hash, `repo`);
   repos.put(nhash, rhash, `repo`);
 }
@@ -907,7 +1014,13 @@ function dumpIsEmpty(d: Dump) {
 }
 
 function dump(opt: DumpOpt): { [k in Name]: Dump } & Status {
-
+  if (!(opt.links || opt.rules || opt.elements)) {
+    opt.links = opt.rules = opt.elements = true;
+  } else {
+    opt.links = opt.links || false;
+    opt.rules = opt.rules || false;
+    opt.elements = opt.elements || false;
+  }
   const dict: { [k in Name]: Dump } = {};
   try {
     let everything = scope.get(root(), `scope`);
@@ -931,6 +1044,12 @@ function dump(opt: DumpOpt): { [k in Name]: Dump } & Status {
 
       if (opt.links !== false) {
         let links = userLinks.get(hash);
+        try {
+          let internals = links.tags(`repo`, `query`, `element`);
+          links = links.notIn(internals);
+        } catch (e) {
+
+        }
         if (opt.tags) links = links.tags(...opt.tags);
 
         if (links.length) info.links = links.map(({Hash, Tag}) => {
