@@ -102,10 +102,13 @@ declare class LinkSet<B, L, Tags extends string = string, T extends L = L> exten
    */
   readonly TYPE: T;
 
+  private origin: LinkRepo<B,L,Tags>;
+  private baseHash: Hash<T>;
+  private loaded: boolean;
   /**
    * Don't new this.
    */
-  constructor(array: Array<holochain.GetLinksResponse>, private origin: LinkRepo<B,L,Tags>, private baseHash: string, onlyTag?: string, private loaded: boolean = true);
+  constructor(array: Array<holochain.GetLinksResponse>, origin: LinkRepo<B,L,Tags>, baseHash: string, onlyTag?: string, loaded?: boolean);
   /**
    * Filter by any number of tags.  Returns a new LinkSet of the same type.
    * @param {string[]} narrowing An array of the tag names wanted.
@@ -229,10 +232,10 @@ declare class LinkRepo<B, L, T extends string = string> {
   /*
   protected recurseGuard: Map<T, number>();
   /*/
-  protected recurseGuard: Set<string>();
+  protected recurseGuard: Set<string>;
   protected guard(base: Hash<B>, link: Hash<L>, tag: T, op: '+'|'-', fn: () => void): void;
   /**/
-  protected selfLinks: Map<T, T[]>();
+  protected selfLinks: Map<T, T[]>;
   protected predicates: Map<
     T,
     { query: Tag<L|B, B|L, T|string>, dependent: Tag<L|B, B|L, T|string> }[]
@@ -283,7 +286,7 @@ declare class LinkRepo<B, L, T extends string = string> {
    * @param {string} backTag the tag that will be used for the reciprocal link.
    * @returns {ThisType}
    */
-  linkBack(tag: T, backTag: T|string = tag, repo?: LinkRepo<L|B, B|L, string>): this;
+  linkBack(tag: T, backTag?: T|string, repo?: LinkRepo<L|B, B|L, string>): this;
 
   // box example:
   // on A -insideOf B, for N: B contains N { N -nextTo A; A -nextTo N }
