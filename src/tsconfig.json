@@ -1,16 +1,25 @@
 {
   "compilerOptions": {
-   	"outDir": "../bin/LinkRepo/dna/LinkRepo",
+   	"outDir": "../bin/",
    	"rootDir": "./",
    	"allowJs": false,
     "target": "es5",
-    "lib" : ["es5", "es6"],
+    "lib" : ["es5"],
     "newLine" : "lf"
   },
+  "files": [
+    "./holochain-proto.d.ts",
+    "./shims.d.ts",
+    "./ex-array-shim.d.ts",
+    "./LinkRepo.ts"
+  ],
   "include" : [
-    "holochain-proto.d.ts", "LinkRepo.ts", "ex-array-shim.d.ts"
+    "./holochain-proto.d.ts",
+    "./shims.d.ts",
+    "./ex-array-shim.d.ts",
+    "./LinkRepo.ts"
   ],
   "exclude": [
-    "*.*"
+    "*.*", "**/*.*"
   ]
 }
