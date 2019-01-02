@@ -71,17 +71,27 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    */
   readonly TYPE: T;
 
+  sync: boolean = true;
   /**
    * Don't new this.
    */
-  constructor(array: Array<holochain.GetLinksResponse>, private origin: LinkRepo<B,L,Tags>, private baseHash: string, onlyTag?: string, private loaded: boolean = true) {
+  constructor(
+    array: Array<holochain.GetLinksResponse>,
+    private origin: LinkRepo<B,L,Tags>,
+    private baseHash: string,
+    onlyTag?: string,
+    private loaded: boolean = true,
+    sync: boolean = true
+  ) {
     super(...array);
-
+    this.sync = sync;
+    /*// I do not recall what I was doing here.
     if (onlyTag) {
       this.forEach((item: holochain.GetLinksResponse) => {
         item.Tag = onlyTag;
       });
     }
+    */
   }
   /**
    * Filter by any number of tags.  Returns a new LinkSet of the same type.
@@ -134,8 +144,8 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * chainable, and the original object will be empty as well.
    */
   removeAll(): void {
-    /*
-    this.forEach( (link: holochain.GetLinksResponse, index:number) => {
+    //*
+    if (this.sync) this.forEach( (link: holochain.GetLinksResponse, index:number) => {
       let target = link.Hash, tag = link.Tag;
       try {
         this.origin.remove(this.baseHash, target, <Tags>tag);
@@ -143,14 +153,23 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
         // don't care, just keep deleting them.
       }
     });
-    let foo = this.splice(0, this.length);
-    /*/
-    commit(this.origin.name, { Links: this.map(link => ({
-      Base: this.baseHash,
-      Link: link.Hash,
-      Tag: link.Tag,
-      LinkAction: HC.LinkAction.Del
-    }))});
+    this.splice(0, this.length);
+    /*/// Why did I think this would work?
+    if (this.sync) {
+      commit(
+        this.origin.name,
+        {
+          Links: this.map(link => ({
+            Base: this.baseHash,
+            Link: link.Hash,
+            Tag: link.Tag,
+            LinkAction: HC.LinkAction.Del
+          }))
+        }
+      );
+    } else {
+      this.splice(0);
+    }
     /**/
   }
 
@@ -163,7 +182,7 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * on the DHT.  Otherwise, return the new {hash, tag, type}.
    * @returns {this}
    */
-  replace(fn: (obj: LinkReplace<T, Tags>) => LinkReplacement<T, Tags>|false): this {
+  replace(fn: (obj: LinkReplace<T, Tags>, i: number, me: this) => LinkReplacement<T, Tags>|false): this {
     const {length, origin} = this;
     const removals: number[] = [];
 
@@ -175,9 +194,9 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
       let entry = get(hash);
 
       if (!isErr(entry)) {
-        let rep = fn({hash, tag, type, entry});
+        let rep = fn({hash, tag, type, entry}, i, this);
         if (rep === null) {
-          origin.remove(this.baseHash, hash, tag);
+          if (this.sync) origin.remove(this.baseHash, hash, tag);
           removals.push(i);
         } else if (rep === false) {
           removals.push(i);
@@ -218,8 +237,13 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     for (let response of this) {
       let {EntryType: type, Hash: hash} = response;
       let tag = <Tags> response.Tag;
-      let entry = <T>notError(get(hash));
-      if (fn({type, entry, hash, tag})) chosen.push(response);
+      let lr = {
+        hash, tag, type,
+        get entry() {
+          return <T>notError(get(hash));
+        }
+      };
+      if (fn(lr)) chosen.push(response);
     }
 
     return chosen;
@@ -234,6 +258,15 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return this.map(this.descEntry);
   }
 
+  /**
+   * Return this LinkSet without the links that are present in another LinkSet.
+   * Useful to negate the other filtering methods, e.g. foo.notIn(foo.tags(`not this tag`))
+   * If the LinkSet is not from the same LinkRepo or isn't the same link base,
+   * the returned object will have the same elements.
+   * @param {LinkSet} ls The disjoint LinkSet
+   * @returns {LinkSet} A LinkSet with all elements of this linkset except those
+   *  in the provided disjoint LinkSet.
+   */
   notIn<Bn extends B, Ln extends L, TagsN extends Tags, Tn extends Ln>
   (ls: LinkSet<Bn,Ln,TagsN,Tn>): LinkSet<B,L,Tags,T> {
     if (ls.origin !== this.origin || ls.baseHash !== this.baseHash) {
@@ -248,10 +281,17 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
       this.origin,
       this.baseHash,
       undefined,
-      this.loaded
+      this.loaded,
+      this.sync
     );
   }
 
+  /**
+   * Returns the links that are in both this linkset and another.  Useful if
+   * you have two independent filtering operations.
+   * @param {LinkSet} ls The intersecting LinkSet
+   * @returns {LinkSet} LinkSet with elements in both this and ls
+   */
   andIn<La extends L, TagsA extends string, Ta extends La>
   (ls: LinkSet<B,La,TagsA,Ta>): LinkSet<B, L, Tags, T> {
 
@@ -266,11 +306,39 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
       this.origin,
       this.baseHash,
       undefined,
-      this.loaded
+      this.loaded,
+      this.sync
     );
   }
 
+  add(tag: Tags, hash: Hash<T>, type: string): this {
+    if (this.sync) this.origin.put(this.baseHash, hash, tag);
+    this.push({
+      Hash: hash,
+      Tag: tag,
+      EntryType: type,
+      Source: App.Agent.Hash
+    });
 
+    return this;
+  }
+
+  save(add: boolean = true, rem: boolean = false): this {
+    if (this.sync) return this;
+    let tags: Set<Tags> = new Set(this.map(({Tag}) => <Tags>Tag));
+    for (let tag of tags.values()) {
+      let existing = this.origin.get(this.baseHash, tag);
+
+      if (add) for (let hash of this.notIn(existing).hashes()) {
+        this.origin.put(this.baseHash, hash, tag);
+      }
+
+      if (rem) {
+        existing.notIn(this).removeAll();
+      }
+    }
+    return this;
+  }
 }
 
 interface Tag<B,L, T extends string> {
@@ -515,9 +583,10 @@ export class LinkRepo<B, L, T extends string = string> {
   }
 
   /**
-   * NOT WELL TESTED
    * When adding a link with the given tag, this repo will first remove any links
    * with the same tag.  This is for one-to-one and one end of a one-to-many.
+   * @param {T} tag The tag to become singular
+   * @returns {this} Chainable.
    */
   singular(tag: T): this {
     this.exclusive.add(tag);

@@ -10,6 +10,10 @@ declare class Set<T extends string|number> {
   keys(): T[];
   values(): T[];
   forEach(cb: (t:T) => void, thisVal?: object): void;
+  clear();
+  union(other: Set<T>): Set<T>;
+  intersect(other: Set<T>): Set<T>;
+  disjunct(other: Set<T>): Set<T>;
 }
 
 declare class Map<K, T> {

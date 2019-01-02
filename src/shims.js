@@ -23,7 +23,7 @@ var Set, Map;
 
     var proto = Set.prototype = Object.create(_super.prototype);
     proto.add = function (item) {
-      if (!this.keys[''+item]) this.size++;
+      if (!this._keys[''+item]) this.size++;
       this._keys[''+item] = true;
       return this;
     };
@@ -40,7 +40,7 @@ var Set, Map;
       return Object.keys(keys).filter(function (key) {
         return keys[key] === true;
       });
-    }
+    };
 
     proto.forEach = function (cb, thisVal) {
       thisVal = thisVal || this;
@@ -49,6 +49,33 @@ var Set, Map;
       while (i--) {
         cb.call(thisVal, keys[i], this);
       }
+    };
+
+    proto.clear = function () {
+      this._keys = {};
+      this.size = 0;
+    };
+
+    proto.union = function (other) {
+      var u = new Set();
+      var size = -this.values().filter(function (v) {
+        return other.has(v);
+      }).length;
+      Object.assign(u._keys, this._keys, other._keys);
+      u.size = size + this.size + other.size;
+      return u;
+    };
+
+    proto.intersect = function (that) {
+      return new Set(this.values().filter(function (v) {
+        return that.has(v);
+      }));
+    };
+
+    proto.disjunct = function (other) {
+      return new Set(this.values().filter(function (v) {
+        return !other.has(v);
+      }));
     }
 
     return Set;

@@ -126,7 +126,7 @@ declare namespace holochain {
 
   // ADDED entries can be strings, "JSON" entries, or arrays of links wrapped in {Links:[]}
   type StringEntry = string;
-  type JsonEntry = object;
+  type JsonEntry = {[k:string]: string|number|boolean|undefined|null|JsonEntry};
   // a linksEntry.Links[] has properties we might as well know...
   interface Link {
     Base: Hash;
