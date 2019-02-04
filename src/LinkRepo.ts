@@ -85,13 +85,6 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
   ) {
     super(...array);
     this.sync = sync;
-    /*// I do not recall what I was doing here.
-    if (onlyTag) {
-      this.forEach((item: holochain.GetLinksResponse) => {
-        item.Tag = onlyTag;
-      });
-    }
-    */
   }
   /**
    * Filter by any number of tags.  Returns a new LinkSet of the same type.
@@ -232,7 +225,7 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * and return a boolean.
    */
   select(fn: (lr: LinkReplace<T, Tags>) => boolean): LinkSet<B, L, Tags, T> {
-    let chosen = new LinkSet<B, L, Tags, T>([], this.origin, this.baseHash);
+    let chosen = new LinkSet<B, L, Tags, T>([], this.origin, this.baseHash, undefined, this.loaded, this.sync);
 
     for (let response of this) {
       let {EntryType: type, Hash: hash} = response;
@@ -247,6 +240,23 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     }
 
     return chosen;
+  }
+
+  unique(cleanDht: boolean = this.sync): LinkSet<B,L,Tags,T> {
+    const inSet = new Set<string>();
+    const result = new LinkSet<B,L,Tags,T>([], this.origin, this.baseHash, undefined, this.loaded, this.sync);
+
+    for (let link of this) {
+      const desc = this.descEntry(link);
+      if (!inSet.has(desc)) {
+        inSet.add(desc);
+        result.push(link);
+      } else if (cleanDht) {
+        this.origin.remove(this.baseHash, link.Hash, <Tags> link.Tag);
+      }
+    }
+
+    return result;
   }
 
   private descEntry(args: {Hash: Hash<B>, Tag?: string, EntryType?: string}): string {
