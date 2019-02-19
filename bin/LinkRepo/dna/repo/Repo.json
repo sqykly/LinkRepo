@@ -24,20 +24,23 @@
     "predicates": {
       "type": "object",
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "object",
-            "properties": {
-              "tag": { "type": "string" },
-              "repo": { "type": "string" }
-            }
-          },
-          "dependent": {
-            "type": "object",
-            "properties": {
-              "tag": { "type": "string" },
-              "repo": { "type": "string" }
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "object",
+              "properties": {
+                "tag": { "type": "string" },
+                "repo": { "type": "string" }
+              }
+            },
+            "dependent": {
+              "type": "object",
+              "properties": {
+                "tag": { "type": "string" },
+                "repo": { "type": "string" }
+              }
             }
           }
         }

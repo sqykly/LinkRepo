@@ -259,6 +259,16 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return result;
   }
 
+  has(tag: Tags, hash: Hash<T>): boolean {
+    let i = this.length;
+    while (i--) {
+      const link = this[i];
+      if (link.Tag === tag && link.Hash === hash) return true;
+    }
+
+    return false;
+  }
+
   private descEntry(args: {Hash: Hash<B>, Tag?: string, EntryType?: string}): string {
     const {Hash, Tag, EntryType} = args;
     return `${Tag || `no-tag`} ${Hash}:${EntryType || `no-type`}`;
