@@ -74,6 +74,13 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
   sync: boolean = true;
   /**
    * Don't new this.
+   * @param {holochain.GetLinksResponse[]} array the links that exist on the DHT
+   * @param {LinkRepo} origin The repo creating this object
+   * @param {Hash} baseHash The hash of the object that is the base of these links
+   * @param {string} onlyTag Vestigial
+   * @param {boolean} loaded Are the entries loaded? default true
+   * @param {boolean} sync Do mutations to this object happen on the DHT?  default true
+   * @constructor
    */
   constructor(
     array: Array<holochain.GetLinksResponse>,
@@ -111,6 +118,7 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
 
   /**
    * Returns an array of Hashes from the LinkSet, typed appropriately
+   * @returns {Hash} Hash<T>[]
    */
   hashes(): Hash<T>[] {
     return this.map( ({Hash}) => Hash);
@@ -125,7 +133,8 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
 
   /**
    * Filters by source.
-   * @param {holochain.Hash} ... allowed sources to be allowed
+   * @param {Hash} allowed... sources to be allowed
+   * @returns {LinkSet} LinkSet
    */
   sources(...allowed: holochain.Hash[]): LinkSet<B,L,Tags,T> {
     let uniques = new Set<holochain.Hash>(allowed);
@@ -173,7 +182,8 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * the link alone.  Return null to have the link deleted, both from the set
    * and the DHT.  Return false to remove the link from the set without deleting
    * on the DHT.  Otherwise, return the new {hash, tag, type}.
-   * @returns {this}
+   * @param {Function} fn ({hash, tag, type, entry}) => {hash, tag, type} | null | undefined | false
+   * @returns {this} LinkSet
    */
   replace(fn: (obj: LinkReplace<T, Tags>, i: number, me: this) => LinkReplacement<T, Tags>|false): this {
     const {length, origin} = this;
@@ -223,6 +233,8 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
    * Go through the set link by link, accepting or rejecting them for a new
    * LinkSet as you go.  The callback should accept a {type, entry, hash, tag}
    * and return a boolean.
+   * @param fn  Callback function
+   * @returns {LinkSet} LinkSet
    */
   select(fn: (lr: LinkReplace<T, Tags>) => boolean): LinkSet<B, L, Tags, T> {
     let chosen = new LinkSet<B, L, Tags, T>([], this.origin, this.baseHash, undefined, this.loaded, this.sync);
@@ -242,6 +254,12 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return chosen;
   }
 
+  /**
+   * Removes links with duplicate hashes and tags
+   * @param {Boolean} cleanDht should the duplicates be removed from the DHT,
+   *  too?  Defaults to the value of this.sync
+   * @returns {LinkSet} LinkSet
+   */
   unique(cleanDht: boolean = this.sync): LinkSet<B,L,Tags,T> {
     const inSet = new Set<string>();
     const result = new LinkSet<B,L,Tags,T>([], this.origin, this.baseHash, undefined, this.loaded, this.sync);
@@ -259,6 +277,12 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return result;
   }
 
+  /**
+   * Is this link in my LinkSet?
+   * @param {Tags} tag The tag to search
+   * @param {Hash} hash The hash to search
+   * @returns {Boolean} Boolean
+   */
   has(tag: Tags, hash: Hash<T>): boolean {
     let i = this.length;
     while (i--) {
@@ -331,6 +355,13 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     );
   }
 
+  /**
+   * Add additional links to the set.  If this.sync, it will be added to the DHT too
+   * @param {Tags} tag The tag of the link
+   * @param {Hash} hash The hash of the object to be added with that tag
+   * @param {String} type The type name of the entry
+   * @returns {LinkSet} LinkSet
+   */
   add(tag: Tags, hash: Hash<T>, type: string): this {
     if (this.sync) this.origin.put(this.baseHash, hash, tag);
     this.push({
@@ -343,6 +374,12 @@ export class LinkSet<B, L, Tags extends string = string, T extends L = L> extend
     return this;
   }
 
+  /**
+   * Pushes the current set to the DHT if it isn't synced already
+   * @param {Boolean} add Should additional links be added to the DHT?  Default true
+   * @param {Boolean} rem Should missing links be deleted from the DHT?  Default false
+   * @returns {LinkSet} LinkSet for chaining
+   */
   save(add: boolean = true, rem: boolean = false): this {
     if (this.sync) return this;
     let tags: Set<Tags> = new Set(this.map(({Tag}) => <Tags>Tag));
@@ -367,29 +404,6 @@ interface Tag<B,L, T extends string> {
 }
 
 /**
- * Problems:
- *  The actual links entry type is not filtered in the response from getLinks.
- *  That kind of undermines the concept of it being a repository.
- *    Can't fake it with tags, since tag strings are types and are gone at runtime
- *
- *  FIXED: The recursion guard seems overzealous, stopping the application of a reciprocal
- *  tag unnecessarily.  Sometimes.  Maybe not the first time?
- *    Fixed by entering a full description of the event ("A +tag B") in the RG,
- *    doing away with the notion of how many times a tag can be repeated in the
- *    stack.
- *
- *  update() does not appear to work in the test system for load/store repos.
- *
- *  Remove() does not appear to be effective.  Of course removeAll() is broken
- *  too.
- *    Given that the test system assumes there is only one result for querying
- *    repos, it is possible that it is finding old versions by using the first
- *    of an array of all of its versions.  BUT it shouldn't be able to find
- *    an old version without asking for it specifically, right?
- *
- */
-
-/**
  * LinkRepo encapsulates all kinds of links.  Used for keeping track of reciprocal
  * links, managing DHT interactions that are otherwise nuanced, producing
  * LinkSet objects, maintaining type-safe Hash types, and defending against
@@ -410,7 +424,7 @@ export class LinkRepo<B, L, T extends string = string> {
    */
   constructor (public readonly name: string) {}
 
-  protected backLinks = new Map<T, Tag<L|B,B|L, T|string>[]>();
+  protected backLinks = new Map<T, Tag<L|B,B|L,T|string>[]>();
   /*
   protected recurseGuard = new Map<T, number>();
   /*/
@@ -437,6 +451,16 @@ export class LinkRepo<B, L, T extends string = string> {
   tag<Ts extends T>(t: Ts): Tag<B, L, T> {
     return { tag: t, repo: this };
   }
+
+  /**
+   * Sets up an empty LinkSet that can interact with this repo.
+   * @param {Hash} base Any added links will use this hash as the base
+   * @returns {LinkSet} an empty LinkSet
+   */
+  emptySet(base: Hash<B>): LinkSet<B,L,T,L> {
+    return new LinkSet<B,L,T,L>([], this, base, undefined);
+  }
+
   /**
    * Produce a LinkSet including all parameter-specified queries.
    * @param {Hash<B>} base this is the Base entry  whose outward links will
@@ -578,7 +602,6 @@ export class LinkRepo<B, L, T extends string = string> {
   // on A -insideOf B, for N: B contains N { N -nextTo A; A -nextTo N }
   // on A +insideOf B, for N: B contains N { N +nextTo A; A +nextTo N }
   /**
-   * NOT WELL TESTED
    * Expresses a rule between 3 tags that ensures that any A triggerTag B,
    * all C where B query.tag C, also C dependent.tag A
    * The reverse should also be true; if not A triggerTag B, any C where
