@@ -24,4 +24,6 @@ sed "$STAGING/LinkRepo.js" -e "s:^require:// no. :g" -e "s:^exports\.:// no. :g"
 
 # glom
 cat $JSLIBS "$STAGING/_LinkRepo.js" > "$BIN/LinkRepo.js"
-cat $DTSLIBS $STAGING/LinkRepo.d.ts > $BIN/LinkRepo.d.ts
+cat $DTSLIBS $STAGING/LinkRepo.d.ts > $STAGING/_LinkRepo.d.ts
+
+sed $STAGING/_LinkRepo.d.ts -e "s:^import:// no:g" -e "s:^export {}:// no:g" -e "s:^export:/\*export\*/:g" > $BIN/LinkRepo.d.ts

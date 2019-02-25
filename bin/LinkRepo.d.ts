@@ -372,31 +372,31 @@ declare interface ObjectConstructor {
 
 declare function shimmy(): void;
 declare class ExArray<T> extends Array<T> {}
-import "./holochain-proto";
-import "./shims";
-import "./ex-array-shim";
+// no "./holochain-proto";
+// no "./shims";
+// no "./ex-array-shim";
 /**
  * This is for type safety when you need assurance that get(Hash) will return the correct type.
  * Not sure if it's working this way, but type safety for returns from get()
  * is still good.
  */
-export declare type Hash<T> = holochain.Hash;
+/*export*/ declare type Hash<T> = holochain.Hash;
 /**
  * The hash you get when commiting a holochain.LinksEntry
  */
-export declare type LinkHash = Hash<holochain.LinksEntry>;
+/*export*/ declare type LinkHash = Hash<holochain.LinksEntry>;
 /**
  * Either throw the error or return the desired result.  The type parameter
  * should usually be inferred from the argument, which will have better warnings
  * downstream.
  */
-export declare function notError<T>(maybeErr: holochain.CanError<T>): T;
-export interface LinkReplacement<T, Tags> {
+/*export*/ declare function notError<T>(maybeErr: holochain.CanError<T>): T;
+/*export*/ interface LinkReplacement<T, Tags> {
     hash: Hash<T>;
     tag: Tags;
     type: string;
 }
-export interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
+/*export*/ interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
     readonly entry: T;
 }
 /**
@@ -410,7 +410,7 @@ export interface LinkReplace<T, Tags> extends LinkReplacement<T, Tags> {
  * arrays to be for..of'ed
  *
  */
-export declare class LinkSet<B, L, Tags extends string = string, T extends L = L> extends ExArray<holochain.GetLinksResponse> {
+/*export*/ declare class LinkSet<B, L, Tags extends string = string, T extends L = L> extends ExArray<holochain.GetLinksResponse> {
     private origin;
     private baseHash;
     private loaded;
@@ -568,7 +568,7 @@ interface Tag<B, L, T extends string> {
  *  ahead and let it default to string.  Do not use tags that include the pipe
  *  character, '|'; union the strings themselves like "foo"|"bar"|"baz"
  */
-export declare class LinkRepo<B, L, T extends string = string> {
+/*export*/ declare class LinkRepo<B, L, T extends string = string> {
     readonly name: string;
     /**
      * @param {string} name the exact dna.zomes[].Entries.Name that this repo will
@@ -688,4 +688,4 @@ export declare class LinkRepo<B, L, T extends string = string> {
      */
     replace(old: holochain.Link, update: holochain.Link): this;
 }
-export {};
+// no;
