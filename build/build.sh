@@ -2,7 +2,7 @@ STAGING="./staging"
 PROJ="../"
 SRC="$PROJ/src"
 BIN="$PROJ/bin"
-DTSLIBS="$SRC/holochain-proto.d.ts $SRC/shims.d.ts $SRC/ex-array-shim.d.ts"
+DTSLIBS="$SRC/shims.d.ts $SRC/ex-array-shim.d.ts"
 JSLIBS="$SRC/shims.js $SRC/ex-array-shim.js"
 
 
@@ -26,4 +26,6 @@ sed "$STAGING/LinkRepo.js" -e "s:^require:// no. :g" -e "s:^exports\.:// no. :g"
 cat $JSLIBS "$STAGING/_LinkRepo.js" > "$BIN/LinkRepo.js"
 cat $DTSLIBS $STAGING/LinkRepo.d.ts > $STAGING/_LinkRepo.d.ts
 
-sed $STAGING/_LinkRepo.d.ts -e "s:^import:// no:g" -e "s:^export {}:// no:g" -e "s:^export:/\*export\*/:g" > $BIN/LinkRepo.d.ts
+sed $STAGING/_LinkRepo.d.ts -e "s:^import:// no:g" -e "s:^export {}:// no:g" -e "s:^export:/\*export\*/:g" > $STAGING/LinkRepo.d.ts
+echo "import './holochain-proto';" > $STAGING/_.d.ts
+cat $STAGING/_.d.ts $STAGING/LinkRepo.d.ts > $BIN/LinkRepo.d.ts
